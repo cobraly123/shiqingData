@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GEO 体检表单</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background:#f8fafc; margin:0; }
+    .container { max-width: 980px; margin: 40px auto; padding: 0 16px; }
+    .card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; box-shadow:0 1px 2px rgba(0,0,0,.04); padding:16px; }
+    .row { display:grid; grid-template-columns: 160px 1fr; gap: 12px; align-items: center; margin-bottom: 12px; }
+    .label { color:#374151; font-weight:600; }
+    .value { color:#111827; }
+    .muted { color:#6b7280; font-size:12px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <div style="font-weight:800; font-size:18px; margin-bottom:8px">GEO 品牌体检 · 表单</div>
+      <div class="muted" style="margin-bottom:16px">通过任务ID加载体检表单内容</div>
+      <div id="content"></div>
+    </div>
+  </div>
+  <script>
+    const qs = new URLSearchParams(location.search);
+    const id = qs.get('id') || '';
+    const el = document.getElementById('content');
+    async function load() {
+      if (!id) { el.innerHTML = '<div class="muted">缺少任务ID参数 ?id=...</div>'; return; }
+      try {
+        const r = await fetch(`http://localhost:3001/api/report/view?id=${encodeURIComponent(id)}`);
+        const j = await r.json();
+        const input = j.input || {};
+        const providers = j.providers || [];
+        const queries = j.queries || [];
+        el.innerHTML = `
+          <div class="row"><div class="label">产品/品牌</div><div class="value">${input.product||''}</div></div>
+          <div class="row"><div class="label">核心关键词</div><div class="value">${input.seedKeyword||''}</div></div>
+          <div class="row"><div class="label">卖点</div><div class="value">${input.sellingPoints||''}</div></div>
+          <div class="row"><div class="label">目标平台</div><div class="value">${providers.join(', ')}</div></div>
+          <div class="row"><div class="label">预选 Query 数</div><div class="value">${queries.length}</div></div>
+        `;
+      } catch (e) {
+        el.innerHTML = `<div class="muted">加载失败：${String(e)}</div>`;
+      }
+    }
+    load();
+  </script>
+</body>
+</html>

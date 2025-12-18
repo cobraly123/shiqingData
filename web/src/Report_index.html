@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>势擎 天眼 - AITO 品牌 GEO 体检诊断报告</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Noto Sans SC', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        tech: {
+                            bg: '#0f172a',
+                            card: 'rgba(30, 41, 59, 0.7)',
+                            border: 'rgba(51, 65, 85, 0.8)',
+                            cyan: '#06b6d4',
+                            blue: '#3b82f6',
+                            purple: '#8b5cf6',
+                            green: '#10b981',
+                            red: '#ef4444',
+                            amber: '#f59e0b'
+                        }
+                    },
+                    animation: {
+                        'fade-in-up': 'fadeInUp 0.8s ease-out forwards',
+                        'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                        'glow': 'glow 2s ease-in-out infinite alternate',
+                        'morph': 'morph 8s ease-in-out infinite',
+                        'float': 'float 6s ease-in-out infinite',
+                    },
+                    keyframes: {
+                        fadeInUp: {
+                            '0%': { opacity: '0', transform: 'translateY(20px)' },
+                            '100%': { opacity: '1', transform: 'translateY(0)' },
+                        },
+                        glow: {
+                            '0%': { boxShadow: '0 0 5px rgba(6, 182, 212, 0.2)' },
+                            '100%': { boxShadow: '0 0 20px rgba(6, 182, 212, 0.6), 0 0 10px rgba(6, 182, 212, 0.4)' },
+                        },
+                        // 优化云朵变形动画，使其更自然
+                        morph: {
+                            '0%': { borderRadius: '60% 40% 30% 70% / 60% 30% 70% 40%' },
+                            '50%': { borderRadius: '30% 60% 70% 40% / 50% 60% 30% 60%' },
+                            '100%': { borderRadius: '60% 40% 30% 70% / 60% 30% 70% 40%' }
+                        },
+                        float: {
+                            '0%, 100%': { transform: 'translateY(0)' },
+                            '50%': { transform: 'translateY(-15px)' }
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #f8fafc;
+            background-image:
+                linear-gradient(rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.9)),
+                linear-gradient(to right, #e5e7eb 1px, transparent 1px),
+                linear-gradient(to bottom, #e5e7eb 1px, transparent 1px);
+            background-size: 100% 100%, 40px 40px, 40px 40px;
+            color: #0f172a;
+        }
+        
+        .tech-card {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(148, 163, 184, 0.3);
+            border-radius: 16px;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .tech-card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(56, 189, 248, 0.5), transparent);
+            opacity: 0;
+            transition: opacity 0.4s;
+        }
+
+        .tech-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 12px 24px -6px rgba(0, 0, 0, 0.2);
+            border-color: rgba(56, 189, 248, 0.4);
+            background: rgba(255, 255, 255, 0.9);
+        }
+
+        .tech-card:hover::before {
+            opacity: 1;
+        }
+
+        .neon-text {
+            background: linear-gradient(to right, #22d3ee, #3b82f6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-shadow: 0 0 30px rgba(34, 211, 238, 0.3);
+        }
+
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+        .conic-chart {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            background: conic-gradient(
+                #10b981 0% 72%, 
+                #64748b 72% 93%, 
+                #ef4444 93% 100%
+            );
+            position: relative;
+            box-shadow: 0 0 20px rgba(16, 185, 129, 0.2);
+        }
+        .conic-chart::after {
+            content: "";
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 90px; height: 90px;
+            background: #0f172a;
+            border-radius: 50%;
+        }
+
+        /* 增强云朵视觉 */
+        .cloud-blob {
+            background: radial-gradient(circle at 40% 40%, rgba(56, 189, 248, 0.1), rgba(15, 23, 42, 0.2));
+            border: 1px solid rgba(56, 189, 248, 0.1);
+            box-shadow: 
+                inset 0 0 60px rgba(56, 189, 248, 0.05),
+                0 0 30px rgba(6, 182, 212, 0.1);
+            transition: all 0.5s ease;
+        }
+
+        .status-dot {
+            position: relative;
+        }
+        .status-dot::after {
+            content: '';
+            position: absolute;
+            top: -2px; left: -2px; right: -2px; bottom: -2px;
+            border-radius: 50%;
+            border: 2px solid currentColor;
+            opacity: 0;
+            animation: ripple 1.5s infinite;
+        }
+        @keyframes ripple {
+            0% { transform: scale(1); opacity: 0.8; }
+            100% { transform: scale(2); opacity: 0; }
+        }
+
+        .delay-100 { animation-delay: 100ms; }
+        .delay-200 { animation-delay: 200ms; }
+        .delay-300 { animation-delay: 300ms; }
+        .delay-400 { animation-delay: 400ms; }
+        .bg-slate-900\/80 { background-color: rgba(255, 255, 255, 0.85) !important; }
+        .bg-slate-800\/50 { background-color: rgba(255, 255, 255, 0.8) !important; }
+        .bg-slate-800\/40 { background-color: rgba(255, 255, 255, 0.6) !important; }
+        .bg-slate-800\/30 { background-color: rgba(255, 255, 255, 0.5) !important; }
+        .bg-slate-800 { background-color: #f1f5f9 !important; }
+        .bg-slate-900 { background-color: #ffffff !important; }
+        .bg-slate-700\/50 { background-color: rgba(203, 213, 225, 0.5) !important; }
+        .bg-slate-700 { background-color: #e2e8f0 !important; }
+        .border-white\/5 { border-color: rgba(0, 0, 0, 0.05) !important; }
+        .border-slate-700, .border-slate-700\/50 { border-color: #e2e8f0 !important; }
+        .text-white { color: #0f172a !important; }
+        .text-slate-100 { color: #1f2937 !important; }
+        .text-slate-200 { color: #334155 !important; }
+        .text-slate-300 { color: #374151 !important; }
+        .text-slate-400 { color: #475569 !important; }
+        .text-slate-500 { color: #64748b !important; }
+
+        .neon-text { text-shadow: 0 0 12px rgba(59, 130, 246, 0.25); }
+        .cloud-blob {
+            background: radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.7), rgba(34, 211, 238, 0.12));
+            border: 1px solid rgba(34, 211, 238, 0.15);
+            box-shadow: inset 0 0 60px rgba(56, 189, 248, 0.08), 0 0 30px rgba(6, 182, 212, 0.12);
+        }
+        .conic-chart { box-shadow: 0 0 20px rgba(16, 185, 129, 0.15); }
+        .conic-chart::after { background: #ffffff; }
+
+        .bg-blue-500\/5 { background-color: rgba(59, 130, 246, 0.06) !important; }
+        .bg-blue-500\/10 { background-color: rgba(59, 130, 246, 0.1) !important; }
+        .bg-cyan-500\/10 { background-color: rgba(6, 182, 212, 0.1) !important; }
+        .bg-cyan-950\/30 { background-color: rgba(6, 182, 212, 0.08) !important; }
+        .bg-blue-900\/20 { background-color: rgba(59, 130, 246, 0.08) !important; }
+        .bg-emerald-900\/10 { background-color: rgba(16, 185, 129, 0.08) !important; }
+        .bg-emerald-900\/20 { background-color: rgba(16, 185, 129, 0.1) !important; }
+        .bg-red-900\/10 { background-color: rgba(239, 68, 68, 0.08) !important; }
+        .bg-red-900\/20 { background-color: rgba(239, 68, 68, 0.1) !important; }
+        .bg-amber-950\/30 { background-color: rgba(245, 158, 11, 0.1) !important; }
+        .bg-gradient-to-r.from-slate-800\/50 { background-image: linear-gradient(to right, rgba(255,255,255,0.8), transparent) !important; }
+    </style>
+</head>
+<body class="antialiased selection:bg-cyan-500 selection:text-white">
+
+    <!-- Navbar -->
+    <nav class="fixed w-full z-50 transition-all duration-300 backdrop-blur-md bg-slate-900/80 border-b border-white/5">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16 items-center">
+                <div class="flex items-center gap-3">
+                    <div class="relative w-8 h-8 flex items-center justify-center">
+                        <div class="absolute inset-0 bg-cyan-500 blur opacity-40 rounded-lg"></div>
+                        <div class="relative w-full h-full bg-gradient-to-br from-cyan-500 to-blue-600 rounded-lg flex items-center justify-center text-white font-bold font-mono">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
+                        </div>
+                    </div>
+                    <span class="text-xl font-bold tracking-tight text-white font-mono">势擎<span class="text-cyan-400"> 天眼</span></span>
+                </div>
+                <div class="hidden md:flex space-x-1 text-sm font-medium text-slate-400">
+                    <a href="#scorecard" class="px-4 py-2 rounded-lg hover:text-cyan-400 hover:bg-white/5 transition-all">全景看板</a>
+                    <a href="#competition" class="px-4 py-2 rounded-lg hover:text-cyan-400 hover:bg-white/5 transition-all">竞品攻防</a>
+                    <a href="#quality" class="px-4 py-2 rounded-lg hover:text-cyan-400 hover:bg-white/5 transition-all">内容质量</a>
+                    <a href="#diagnostics" class="px-4 py-2 rounded-lg hover:text-cyan-400 hover:bg-white/5 transition-all">归因诊断</a>
+                </div>
+                <div class="flex items-center gap-2 text-xs font-mono text-cyan-500 bg-cyan-950/30 px-3 py-1 rounded-full border border-cyan-900">
+                    <span class="w-2 h-2 rounded-full bg-cyan-500 animate-pulse"></span>
+                    系统在线
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 space-y-16">
+
+        <!-- Executive Summary Header -->
+        <header class="text-center space-y-6 mb-16 animate-fade-in-up">
+            <div class="inline-block px-3 py-1 rounded-full bg-slate-800/50 border border-slate-700 text-cyan-400 text-xs font-mono mb-4">
+                报告编号: AITO-2025-12-04
+            </div>
+            <h1 class="text-5xl md:text-6xl font-extrabold text-white tracking-tight">
+                AITO 安全 GEO 综合诊断<span class="neon-text">报告</span>
+            </h1>
+            
+            <!-- Model Selector -->
+            <div class="flex flex-wrap justify-center gap-4 mt-6">
+                <!-- Selected: Qwen -->
+                <div class="flex items-center space-x-2 px-4 py-2 rounded-lg bg-cyan-500/10 border border-cyan-500/50 text-cyan-400 shadow-[0_0_15px_rgba(6,182,212,0.2)] transition-all hover:bg-cyan-500/20 cursor-default">
+                    <div class="w-4 h-4 rounded-full bg-cyan-500 flex items-center justify-center">
+                        <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>
+                    </div>
+                    <span class="font-mono font-bold">Qwen</span>
+                </div>
+                
+                <!-- Selected: DeepSeek -->
+                <div class="flex items-center space-x-2 px-4 py-2 rounded-lg bg-cyan-500/10 border border-cyan-500/50 text-cyan-400 shadow-[0_0_15px_rgba(6,182,212,0.2)] transition-all hover:bg-cyan-500/20 cursor-default">
+                    <div class="w-4 h-4 rounded-full bg-cyan-500 flex items-center justify-center">
+                        <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>
+                    </div>
+                    <span class="font-mono font-bold">DeepSeek</span>
+                </div>
+
+                <!-- Selected: Baidu -->
+                <div class="flex items-center space-x-2 px-4 py-2 rounded-lg bg-cyan-500/10 border border-cyan-500/50 text-cyan-400 shadow-[0_0_15px_rgba(6,182,212,0.2)] transition-all hover:bg-cyan-500/20 cursor-default">
+                    <div class="w-4 h-4 rounded-full bg-cyan-500 flex items-center justify-center">
+                        <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>
+                    </div>
+                    <span class="font-mono font-bold">Baidu</span>
+                </div>
+
+                <!-- Unselected: Doubao -->
+                <div class="flex items-center space-x-2 px-4 py-2 rounded-lg bg-slate-800/50 border border-slate-700 text-slate-500 hover:border-slate-600 transition-all cursor-not-allowed opacity-60 hover:opacity-80">
+                    <div class="w-4 h-4 rounded-full border-2 border-slate-600"></div>
+                    <span class="font-mono">Doubao</span>
+                </div>
+
+                <!-- Unselected: KIMI -->
+                <div class="flex items-center space-x-2 px-4 py-2 rounded-lg bg-slate-800/50 border border-slate-700 text-slate-500 hover:border-slate-600 transition-all cursor-not-allowed opacity-60 hover:opacity-80">
+                    <div class="w-4 h-4 rounded-full border-2 border-slate-600"></div>
+                    <span class="font-mono">KIMI</span>
+                </div>
+            </div>
+            <p class="text-xs text-slate-500 mt-2">当前显示已勾选模型的核心数据分析</p>
+
+            <div class="flex justify-center gap-4 mt-8">
+                <div class="px-4 py-2 bg-slate-800/50 rounded border border-slate-700 text-sm">
+                    <span class="text-slate-500">测试样本量</span>
+                    <span class="block text-xl font-bold text-white font-mono">5+</span>
+                </div>
+                <div class="px-4 py-2 bg-slate-800/50 rounded border border-slate-700 text-sm">
+                    <span class="text-slate-500">综合评级</span>
+                    <span class="block text-xl font-bold text-cyan-400 font-mono">挑战者</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Section 1: Executive Scorecard -->
+        <section id="scorecard" class="scroll-mt-24 space-y-6">
+            <div class="flex items-center gap-3 mb-8">
+                <div class="w-1 h-8 bg-gradient-to-b from-cyan-400 to-blue-600 rounded-full"></div>
+                <h2 class="text-2xl font-bold text-white">01 / 核心全景看板</h2>
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <!-- Metric 1 -->
+                <div class="tech-card p-6 animate-fade-in-up delay-100 group">
+                    <div class="flex justify-between items-start mb-4">
+                        <p class="text-sm font-medium text-slate-400 font-mono">提及率 / 覆盖率</p>
+                        <span class="text-emerald-400">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path></svg>
+                        </span>
+                    </div>
+                    <div class="mb-4">
+                        <h3 class="text-4xl font-bold text-white font-mono group-hover:text-emerald-400 transition-colors">18.5<span class="text-lg">%</span></h3>
+                        <p class="text-sm text-emerald-400 mt-1">品牌被有效收录</p>
+                    </div>
+                    <div class="w-full bg-slate-700/50 rounded-full h-1.5 overflow-hidden mb-3">
+                        <div class="bg-emerald-500 h-full rounded-full w-[68.5%] shadow-[0_0_10px_rgba(16,185,129,0.5)]"></div>
+                    </div>
+                    <!-- Breakdown Data -->
+                    <div class="grid grid-cols-3 gap-1 text-[10px] text-slate-400 font-mono border-t border-white/5 pt-2">
+                        <div class="text-center"><div>Baidu</div><div class="text-emerald-400">15%</div></div>
+                        <div class="text-center border-l border-white/5"><div>Qwen</div><div class="text-emerald-400">22%</div></div>
+                        <div class="text-center border-l border-white/5"><div>DeepSeek</div><div class="text-yellow-500">8%</div></div>
+                    </div>
+                </div>
+
+                <!-- Metric 2 -->
+                <div class="tech-card p-6 animate-fade-in-up delay-200 group">
+                    <div class="flex justify-between items-start mb-4">
+                        <p class="text-sm font-medium text-slate-400 font-mono">首位推荐率</p>
+                        <span class="text-amber-400">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                        </span>
+                    </div>
+                    <div class="mb-4">
+                        <h3 class="text-4xl font-bold text-white font-mono group-hover:text-amber-400 transition-colors">8.4<span class="text-lg">%</span></h3>
+                        <p class="text-sm text-amber-400 mt-1">排名第一的概率</p>
+                    </div>
+                    <div class="w-full bg-slate-700/50 rounded-full h-1.5 overflow-hidden mb-3">
+                        <div class="bg-amber-500 h-full rounded-full w-[8.4%] shadow-[0_0_10px_rgba(245,158,11,0.5)]"></div>
+                    </div>
+                    <!-- Breakdown Data -->
+                    <div class="flex justify-between text-[10px] text-slate-400 font-mono border-t border-white/5 pt-2">
+                        <span>Top 3 渗透率</span>
+                        <span class="text-white">20%+</span>
+                    </div>
+                </div>
+
+                <!-- Metric 3 -->
+                <div class="tech-card p-6 md:col-span-2 animate-fade-in-up delay-300 flex items-center justify-between relative overflow-hidden">
+                    <div class="absolute right-0 top-0 w-64 h-64 bg-cyan-500/10 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
+                    
+                    <div class="z-10 flex-1">
+                        <p class="text-sm font-medium text-slate-400 font-mono mb-4">情感倾向分析</p>
+                        <div class="space-y-4">
+                            <div class="flex items-center justify-between">
+                                <span class="text-sm text-slate-300 flex items-center"><span class="w-2 h-2 rounded-full bg-emerald-500 mr-2 shadow-[0_0_5px_rgba(16,185,129,0.8)]"></span>正面 (技术/安全)</span>
+                                <span class="font-mono text-emerald-400">72%</span>
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <span class="text-sm text-slate-300 flex items-center"><span class="w-2 h-2 rounded-full bg-slate-500 mr-2"></span>中性 (竞品对比)</span>
+                                <span class="font-mono text-slate-400">21%</span>
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <span class="text-sm text-slate-300 flex items-center"><span class="w-2 h-2 rounded-full bg-red-500 mr-2 shadow-[0_0_5px_rgba(239,68,68,0.8)]"></span>负面 (售后/误报)</span>
+                                <span class="font-mono text-red-400">7%</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="z-10 ml-8 flex-shrink-0">
+                        <div class="conic-chart flex items-center justify-center">
+                            <div class="text-center">
+                                <div class="text-xs text-slate-500">总体</div>
+                                <div class="text-lg font-bold text-white">正面</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Consensus & Cloud -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div class="tech-card p-6 animate-fade-in-up delay-400">
+                    <h3 class="font-bold text-lg text-white mb-6 flex items-center">
+                        平台共识度
+                        <span class="ml-2 px-2 py-0.5 rounded text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/30">中 (波动)</span>
+                    </h3>
+                    <div class="space-y-4">
+                        <div class="p-4 bg-emerald-900/20 rounded-lg border border-emerald-500/20">
+                            <div class="text-xs font-mono text-emerald-400 mb-2 flex items-center"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-2 animate-pulse"></span>高共识度</div>
+                            <div class="flex gap-2 flex-wrap">
+                                <span class="px-2 py-1 bg-emerald-500/10 rounded text-xs text-emerald-300 border border-emerald-500/20">全向防碰撞</span>
+                                <span class="px-2 py-1 bg-emerald-500/10 rounded text-xs text-emerald-300 border border-emerald-500/20">玄武车身</span>
+                            </div>
+                        </div>
+                        <div class="p-4 bg-red-900/20 rounded-lg border border-red-500/20">
+                            <div class="text-xs font-mono text-red-400 mb-2 flex items-center"><span class="w-1.5 h-1.5 rounded-full bg-red-500 mr-2 animate-pulse"></span>低共识度</div>
+                            <div class="flex gap-2 flex-wrap">
+                                <span class="px-2 py-1 bg-red-500/10 rounded text-xs text-red-300 border border-red-500/20">120km/h刹停</span>
+                                <span class="px-2 py-1 bg-red-500/10 rounded text-xs text-red-300 border border-red-500/20">售后透明</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Cloud Shaped Word Cloud -->
+                <div class="relative tech-card p-8 md:col-span-2 animate-fade-in-up delay-400 overflow-visible">
+                     <div class="absolute top-0 right-0 p-4 opacity-20">
+                        <svg class="w-16 h-16 text-cyan-500" fill="currentColor" viewBox="0 0 24 24"><path d="M20.5 6c-2.61.7-5.67 1-8.5 1s-5.89-.3-8.5-1L3 8c1.86.5 4 .83 6 1v13h2v-6h2v6h2V9c2-.17 4.14-.5 6-1l-.5-2zM12 6c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2z"></path></svg>
+                     </div>
+                    <h3 class="font-bold text-lg text-white mb-6 relative z-10">AI 认知词云</h3>
+                    
+                    <div class="flex items-center justify-center min-h-[350px] relative py-8">
+                        <!-- Cloud Background Shapes -->
+                        <div class="absolute inset-0 m-auto w-[90%] h-[90%] cloud-blob animate-morph animate-float opacity-80 z-0"></div>
+                        <div class="absolute inset-0 m-auto w-[85%] h-[85%] bg-blue-500/5 rounded-full blur-2xl z-0 animate-pulse-slow"></div>
+
+                        <!-- Words arranged: Small -> Medium -> Large (Center) -> Medium -> Small -->
+                        <div class="relative z-10 flex flex-wrap gap-x-4 gap-y-2 items-center justify-center max-w-xl text-center px-6">
+                            
+                            <!-- Top Edge (Small/Medium) -->
+                            <span class="text-xs text-slate-400">哨兵模式</span>
+                            <span class="text-xs text-cyan-200">手机互联</span>
+                            <span class="text-xs font-mono text-green-300">OTA升级</span>
+                            <span class="text-sm font-medium text-emerald-200">续航扎实</span>
+                            <span class="text-xs text-blue-300">充电速度</span>
+                            <span class="text-xs text-slate-300">操控精准</span>
+                            <span class="text-xs text-red-400">误报争议</span>
+                            <span class="text-xs text-slate-400">增程技术</span>
+                            <span class="text-sm text-slate-400">零重力座椅</span>
+                            <span class="text-xs text-slate-300">豪华内饰</span>
+                            <span class="text-xs text-slate-300">隔音好</span>
+                            
+                            <!-- Upper Middle (Medium/Large) -->
+                            <span class="text-base font-bold text-blue-300">途灵底盘</span>
+                            <span class="text-lg font-medium text-amber-400">需理想条件</span>
+                            <span class="text-base font-mono text-emerald-300">无图NCA</span>
+                            <span class="text-base font-mono text-purple-400">GOD网络</span>
+                            <span class="text-lg font-bold text-indigo-400">鸿蒙座舱</span>
+                            <span class="text-base font-bold text-green-400">AEB主动刹停</span>
+                            <span class="text-lg font-bold text-white">问界M9</span>
+                            
+                            <!-- Center Core (Largest) -->
+                            <div class="flex flex-wrap items-center justify-center gap-4 px-4 my-2">
+                                <span class="text-3xl font-extrabold text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.5)]">遥遥领先</span>
+                                <span class="text-3xl font-extrabold text-amber-400 drop-shadow-[0_0_15px_rgba(251,191,36,0.5)]">科技车皇</span>
+                                <span class="text-2xl font-extrabold text-purple-500 drop-shadow-md">智驾天花板</span>
+                                <span class="text-2xl font-bold text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.5)]">五星安全</span>
+                            </div>
+
+                            <!-- Lower Middle (Medium/Large) -->
+                            <span class="text-2xl font-bold text-blue-500">激光雷达</span>
+                            <span class="text-xl font-mono text-cyan-400">华为ADS</span>
+                            <span class="text-xl font-bold text-slate-300">高强度钢</span>
+                            <span class="text-2xl font-bold text-cyan-300">全向防碰撞</span>
+                            <span class="text-base font-mono text-purple-300">华为音响</span>
+                            <span class="text-base font-bold text-red-400">销量火爆</span>
+
+                            <!-- Bottom Edge (Small/Medium) -->
+                            <span class="text-xs text-slate-400">交付周期</span>
+                            <span class="text-xs text-blue-200">试驾体验</span>
+                            <span class="text-sm font-medium text-slate-200">商务接待</span>
+                            <span class="text-xs text-slate-300">外观大气</span>
+                            <span class="text-xs text-slate-300">空间宽敞</span>
+                            <span class="text-sm font-medium text-emerald-300">家用首选</span>
+                            <span class="text-xs text-red-400">价格坚挺</span>
+                            <span class="text-xs text-slate-500">优惠少</span>
+                            <span class="text-sm font-mono text-cyan-300">192线雷达</span>
+                            <span class="text-xs text-slate-400">碳化硅</span>
+                            <span class="text-xs font-mono text-blue-300">CDC减震</span>
+                            <span class="text-xs text-slate-400">双叉臂</span>
+                            <span class="text-sm font-medium text-slate-300">空气悬挂</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 2: Competitive Landscape -->
+        <section id="competition" class="scroll-mt-24 space-y-6">
+            <div class="flex items-center gap-3 mb-8">
+                <div class="w-1 h-8 bg-gradient-to-b from-amber-400 to-red-600 rounded-full"></div>
+                <h2 class="text-2xl font-bold text-white">02 / 竞品攻防透视</h2>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <!-- Comparison 1 -->
+                <div class="tech-card p-0 group">
+                    <div class="p-5 border-b border-white/5 flex justify-between items-center bg-gradient-to-r from-slate-800/50 to-transparent">
+                        <h3 class="font-bold text-lg text-white">对标 沃尔沃 XC90</h3>
+                        <span class="px-3 py-1 bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 rounded-full text-xs font-bold font-mono">胜出: 主动安全</span>
+                    </div>
+                    <div class="p-8 grid grid-cols-2 gap-8 relative">
+                        <div class="text-center space-y-2 opacity-60 group-hover:opacity-100 transition-opacity">
+                            <p class="text-xs font-mono text-slate-500">竞品</p>
+                            <div class="text-lg font-bold text-slate-300">传统安全标杆</div>
+                            <div class="h-1 w-12 bg-slate-600 mx-auto rounded-full"></div>
+                            <p class="text-xs text-slate-400">核心提及: 硼钢车身 / 生还记录</p>
+                        </div>
+                        
+                        <div class="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 z-10">
+                            <div class="w-12 h-12 bg-slate-900 rounded-full flex items-center justify-center border border-white/10 shadow-xl text-xs font-mono font-bold text-slate-500">对比</div>
+                        </div>
+
+                        <div class="text-center space-y-2">
+                            <p class="text-xs font-mono text-cyan-500">AITO</p>
+                            <div class="text-lg font-bold text-white drop-shadow-[0_0_10px_rgba(6,182,212,0.5)]">智能安全新锐</div>
+                            <div class="h-1 w-12 bg-cyan-500 mx-auto rounded-full shadow-[0_0_10px_rgba(6,182,212,0.8)]"></div>
+                            <p class="text-xs text-cyan-300">核心提及: 激光雷达 / 主动刹停</p>
+                        </div>
+                    </div>
+                    <div class="px-6 pb-6 pt-2">
+                         <div class="p-4 bg-cyan-950/30 rounded border border-cyan-500/20 text-sm text-cyan-200/80">
+                            <strong class="text-cyan-400 font-mono">> AI 分析:</strong> 承认 XC90 的历史地位，但在 <strong>AEB/智驾</strong> 维度明确指出 AITO 具有代际优势。
+                         </div>
+                    </div>
+                </div>
+
+                <!-- Comparison 2 -->
+                <div class="tech-card p-0 group">
+                    <div class="p-5 border-b border-white/5 flex justify-between items-center bg-gradient-to-r from-slate-800/50 to-transparent">
+                        <h3 class="font-bold text-lg text-white">对标 理想 L9</h3>
+                        <span class="px-3 py-1 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-full text-xs font-bold font-mono">胶着: 错位竞争</span>
+                    </div>
+                    <div class="p-8 grid grid-cols-2 gap-8 relative">
+                        <div class="text-center space-y-2 opacity-60 group-hover:opacity-100 transition-opacity">
+                            <p class="text-xs font-mono text-slate-500">竞品</p>
+                            <div class="text-lg font-bold text-slate-300">舒适/家庭</div>
+                            <div class="h-1 w-12 bg-slate-600 mx-auto rounded-full"></div>
+                            <p class="text-xs text-slate-400">核心提及: 冰箱彩电 / 服务透明</p>
+                        </div>
+                        
+                        <div class="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 z-10">
+                            <div class="w-12 h-12 bg-slate-900 rounded-full flex items-center justify-center border border-white/10 shadow-xl text-xs font-mono font-bold text-slate-500">对比</div>
+                        </div>
+
+                        <div class="text-center space-y-2">
+                            <p class="text-xs font-mono text-cyan-500">AITO</p>
+                            <div class="text-lg font-bold text-white drop-shadow-[0_0_10px_rgba(6,182,212,0.5)]">智驾/硬核</div>
+                            <div class="h-1 w-12 bg-cyan-500 mx-auto rounded-full shadow-[0_0_10px_rgba(6,182,212,0.8)]"></div>
+                            <p class="text-xs text-cyan-300">核心提及: 华为ADS / 底盘用料</p>
+                        </div>
+                    </div>
+                    <div class="px-6 pb-6 pt-2">
+                         <div class="p-4 bg-amber-950/30 rounded border border-amber-500/20 text-sm text-amber-200/80">
+                            <strong class="text-amber-400 font-mono">> AI 分析:</strong> 两者处于同一梯队。AI 对 AITO 的<strong>售后透明度</strong>评价低于理想。
+                         </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Attribute Ownership -->
+            <div class="mt-8 tech-card p-8">
+                <h3 class="font-bold text-lg text-white mb-6">属性占位分析</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div>
+                        <h4 class="text-sm font-semibold text-emerald-400 mb-4 flex items-center">
+                            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                            独占/强绑定
+                        </h4>
+                        <div class="space-y-3">
+                            <div class="flex items-center justify-between p-3 bg-emerald-900/10 rounded border border-emerald-500/20 hover:bg-emerald-900/20 transition-colors">
+                                <span class="text-sm font-medium text-emerald-200">全向防碰撞</span>
+                                <span class="text-xs bg-emerald-500/20 text-emerald-300 px-2 py-1 rounded font-mono border border-emerald-500/30">100% 首推</span>
+                            </div>
+                            <div class="flex items-center justify-between p-3 bg-emerald-900/10 rounded border border-emerald-500/20 hover:bg-emerald-900/20 transition-colors">
+                                <span class="text-sm font-medium text-emerald-200">鬼探头 (场景)</span>
+                                <span class="text-xs bg-emerald-500/20 text-emerald-300 px-2 py-1 rounded font-mono border border-emerald-500/30">强引用</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div>
+                        <h4 class="text-sm font-semibold text-slate-400 mb-4 flex items-center">
+                            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                            弱绑定/共享
+                        </h4>
+                        <div class="space-y-3">
+                            <div class="flex items-center justify-between p-3 bg-slate-800/30 rounded border border-white/5 hover:bg-slate-800/50 transition-colors">
+                                <span class="text-sm font-medium text-slate-300">大车避让</span>
+                                <span class="text-xs bg-slate-700 text-slate-400 px-2 py-1 rounded font-mono">多品牌共享</span>
+                            </div>
+                            <div class="flex items-center justify-between p-3 bg-slate-800/30 rounded border border-white/5 hover:bg-slate-800/50 transition-colors">
+                                <span class="text-sm font-medium text-slate-300">冰雪模式</span>
+                                <span class="text-xs bg-slate-700 text-slate-400 px-2 py-1 rounded font-mono">通用词混淆</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 3: Quality & Conversion -->
+        <section id="quality" class="scroll-mt-24 space-y-6">
+            <div class="flex items-center gap-3 mb-8">
+                <div class="w-1 h-8 bg-gradient-to-b from-purple-400 to-indigo-600 rounded-full"></div>
+                <h2 class="text-2xl font-bold text-white">03 / 内容质量与转化</h2>
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <!-- Stat 1 -->
+                <div class="tech-card p-8 flex flex-col items-center text-center group hover:border-purple-500/50">
+                    <div class="w-16 h-16 bg-purple-500/10 text-purple-400 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300 group-hover:bg-purple-500/20 group-hover:shadow-[0_0_20px_rgba(168,85,247,0.3)]">
+                        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    </div>
+                    <h3 class="text-3xl font-bold text-white font-mono mb-2">95%+</h3>
+                    <p class="text-sm font-bold text-purple-400 uppercase tracking-wider">信息准确度</p>
+                    <p class="text-xs text-slate-400 mt-2">硬件参数极高准确，极少幻觉</p>
+                </div>
+                 <!-- Stat 2 -->
+                 <div class="tech-card p-8 flex flex-col items-center text-center group hover:border-blue-500/50">
+                    <div class="w-16 h-16 bg-blue-500/10 text-blue-400 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300 group-hover:bg-blue-500/20 group-hover:shadow-[0_0_20px_rgba(59,130,246,0.3)]">
+                        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"></path></svg>
+                    </div>
+                    <h3 class="text-3xl font-bold text-white font-mono mb-2">高</h3>
+                    <p class="text-sm font-bold text-blue-400 uppercase tracking-wider">卖点传递</p>
+                    <p class="text-xs text-slate-400 mt-2">"安全是最大的豪华" 渗透率高</p>
+                </div>
+                 <!-- Stat 3 -->
+                 <div class="tech-card p-8 flex flex-col items-center text-center group hover:border-red-500/50">
+                    <div class="w-16 h-16 bg-red-500/10 text-red-400 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300 group-hover:bg-red-500/20 group-hover:shadow-[0_0_20px_rgba(239,68,68,0.3)]">
+                        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                    </div>
+                    <h3 class="text-3xl font-bold text-white font-mono mb-2">低</h3>
+                    <p class="text-sm font-bold text-red-400 uppercase tracking-wider">行动号召</p>
+                    <p class="text-xs text-slate-400 mt-2">缺乏"预约试驾"等转化钩子</p>
+                </div>
+            </div>
+
+            <div class="mt-6 tech-card p-8 bg-white">
+              <h3 class="font-bold text-lg text-white mb-6">推荐理由归因逻辑</h3>
+              <div class="flex flex-col md:flex-row gap-6">
+                    <div class="flex-1 p-5 bg-white rounded-lg border border-blue-500/30 relative overflow-hidden">
+                        <h4 class="font-bold text-blue-300 relative z-10 mb-2">技术驱动 (主导)</h4>
+                        <p class="text-sm text-slate-300 relative z-10">AI 推荐的核心逻辑是“华为 ADS 算法” + “激光雷达硬件冗余”。</p>
+                        <div class="absolute top-2 right-2 w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>
+                    </div>
+                    <div class="flex-1 p-5 bg-white rounded-lg border border-slate-700/50 relative">
+                        <h4 class="font-bold text-slate-400 mb-2">服务/性价比 (缺失)</h4>
+                        <p class="text-sm text-slate-500">极少基于售后服务体验或纯粹性价比进行推荐。</p>
+                        <div class="absolute top-2 right-2 w-2 h-2 rounded-full bg-slate-700"></div>
+                    </div>
+              </div>
+            </div>
+        </section>
+
+        <!-- Section 4: Diagnostics & Root Causes -->
+        <section id="diagnostics" class="scroll-mt-24 space-y-6">
+            <div class="flex items-center gap-3 mb-8">
+                <div class="w-1 h-8 bg-gradient-to-b from-red-500 to-orange-600 rounded-full"></div>
+                <h2 class="text-2xl font-bold text-white">04 / 归因与技术诊断</h2>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <!-- DeepSeek Issue -->
+                <div class="tech-card p-6 border-red-500/20">
+                    <div class="flex items-center gap-3 mb-6">
+                        <div class="px-2 py-1 bg-white text-slate-900 text-xs font-bold rounded font-mono">DeepSeek</div>
+                        <h3 class="font-bold text-lg text-white">引用依赖症</h3>
+                    </div>
+                    <div class="space-y-6">
+                        <div class="relative pt-1">
+                            <div class="flex mb-2 items-center justify-between">
+                                <span class="text-xs font-bold text-emerald-400 font-mono">
+                                    有信源
+                                </span>
+                                <span class="text-xs font-bold text-emerald-400 font-mono">
+                                    质量: 优
+                                </span>
+                            </div>
+                            <div class="flex h-2 mb-4 overflow-hidden text-xs bg-slate-700 rounded-full">
+                                <div style="width:95%" class="flex flex-col text-center whitespace-nowrap text-white justify-center bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.8)]"></div>
+                            </div>
+                        </div>
+                        <div class="relative pt-1">
+                            <div class="flex mb-2 items-center justify-between">
+                                <span class="text-xs font-bold text-red-400 font-mono">
+                                    无信源
+                                </span>
+                                <span class="text-xs font-bold text-red-400 font-mono">
+                                    质量: 差
+                                </span>
+                            </div>
+                            <div class="flex h-2 mb-4 overflow-hidden text-xs bg-slate-700 rounded-full">
+                                <div style="width:20%" class="flex flex-col text-center whitespace-nowrap text-white justify-center bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)]"></div>
+                            </div>
+                        </div>
+                        <div class="p-4 bg-red-900/10 border border-red-500/20 rounded-lg">
+                            <p class="text-sm text-red-200 mb-2">
+                                <strong class="text-red-400">风险点：</strong> 知识断层 (Knowledge Gap)
+                            </p>
+                            <div class="flex gap-2 flex-wrap">
+                                <span class="text-xs px-2 py-1 bg-red-500/20 text-red-300 rounded">GOD网络</span>
+                                <span class="text-xs px-2 py-1 bg-red-500/20 text-red-300 rounded">PDP预测</span>
+                                <span class="text-xs px-2 py-1 bg-red-500/20 text-red-300 rounded">CAS 3.0</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Baidu Analysis -->
+                <div class="tech-card p-6 border-blue-500/20">
+                    <div class="flex items-center gap-3 mb-6">
+                        <div class="px-2 py-1 bg-blue-600 text-white text-xs font-bold rounded font-mono">Baidu</div>
+                        <h3 class="font-bold text-lg text-white">垂直媒体生态</h3>
+                    </div>
+                    <ul class="space-y-4">
+                        <li class="flex items-start group">
+                            <div class="mt-1 mr-3 p-1 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 group-hover:bg-emerald-500/20 transition-colors">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                            </div>
+                            <span class="text-sm text-slate-300">高度依赖<strong>汽车之家、易车网</strong>等垂类媒体。</span>
+                        </li>
+                        <li class="flex items-start group">
+                            <div class="mt-1 mr-3 p-1 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 group-hover:bg-emerald-500/20 transition-colors">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                            </div>
+                            <span class="text-sm text-slate-300">结构化能力最强，适合 C 端种草。</span>
+                        </li>
+                        <li class="flex items-start group">
+                            <div class="mt-1 mr-3 p-1 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 group-hover:bg-amber-500/20 transition-colors">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                            </div>
+                            <span class="text-sm text-slate-300">容易抓取到负面 UGC（如分心监测争议）。</span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Action Plan Footer -->
+            <div class="mt-12 tech-card p-8 bg-white border-t-4 border-cyan-500">
+              <h3 class="text-xl font-bold mb-8 flex items-center text-white">
+                <svg class="w-6 h-6 mr-3 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                GEO 优化行动建议 <span class="ml-2 text-xs font-mono text-slate-500 border border-slate-700 rounded px-2 py-0.5">行动计划</span>
+              </h3>
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div class="bg-white p-6 rounded-xl border border-white/5 hover:border-cyan-500/40 transition-all duration-300 group">
+                  <div class="text-cyan-400 font-mono text-xs mb-2 opacity-50">#01</div>
+                  <h4 class="font-bold text-white mb-2 group-hover:text-cyan-400 transition-colors">填补技术词缺口</h4>
+                  <p class="text-sm text-slate-400">建立 GOD/PDP 等词条的独立知识页（知乎/百科），修复 DeepSeek 的索引断层。</p>
+                </div>
+                <div class="bg-white p-6 rounded-xl border border-white/5 hover:border-cyan-500/40 transition-all duration-300 group">
+                  <div class="text-cyan-400 font-mono text-xs mb-2 opacity-50">#02</div>
+                  <h4 class="font-bold text-white mb-2 group-hover:text-cyan-400 transition-colors">统一极限数据口径</h4>
+                  <p class="text-sm text-slate-400">发布 "120km/h 刹停" 的官方严谨测试报告，消除 AI 的"夸大"疑虑。</p>
+                </div>
+                <div class="bg-white p-6 rounded-xl border border-white/5 hover:border-cyan-500/40 transition-all duration-300 group">
+                  <div class="text-cyan-400 font-mono text-xs mb-2 opacity-50">#03</div>
+                  <h4 class="font-bold text-white mb-2 group-hover:text-cyan-400 transition-colors">售后内容 SEO</h4>
+                  <p class="text-sm text-slate-400">发布透明维保价目表和流程图，覆盖现有的负面/模糊评价。</p>
+                </div>
+              </div>
+            </div>
+        </section>
+
+        <footer class="text-center text-slate-600 text-sm py-12 font-mono">
+            <p class="flex items-center justify-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-cyan-500 animate-pulse"></span>
+                系统状态: 正常
+            </p>
+            <p class="mt-2">© 2025 势擎本地 | GEO 生成式引擎优化诊断系统</p>
+        </footer>
+
+    </main>
+</body>
+</html>
