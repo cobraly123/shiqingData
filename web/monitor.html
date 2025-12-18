@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GEO 监控后台</title>
+  <style>
+    :root { --bg:#f8fafc; --panel:#ffffff; --text:#0f172a; --muted:#64748b; --border:#e2e8f0; --brand:#1890FF; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; }
+    .nav { height: 56px; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; border-bottom: 1px solid var(--border); background: var(--panel); }
+    .container { max-width: 1200px; margin: 0 auto; padding: 16px; }
+    .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
+    .grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
+    .form { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; align-items: end; }
+    label { font-size: 12px; color: #374151; font-weight: 500; }
+    .input, .select { width: 100%; height: 36px; border: 1px solid #e5e7eb; border-radius: 8px; padding: 6px 10px; }
+    .btn { appearance:none; border:0; border-radius:8px; height:36px; padding:0 12px; font-weight:600; color:#fff; background: linear-gradient(90deg, #2563eb, #3b82f6); cursor:pointer; }
+    .btn-secondary { background:#fff; color:var(--text); border:1px solid var(--border); }
+    .table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .table th, .table td { border: 1px solid var(--border); padding: 8px; text-align: left; vertical-align: top; }
+    .table thead th { background: #f3f4f6; }
+    .muted { color: var(--muted); }
+    .controls { display:flex; gap:8px; flex-wrap:wrap; }
+    .nowrap { white-space: nowrap; }
+    .table th:nth-child(7), .table td:nth-child(7) { width: 46%; }
+    .table th:nth-child(6), .table td:nth-child(6) { width: 28%; }
+  </style>
+</head>
+<body>
+  <div class="nav">
+    <strong>GEO 监控后台</strong>
+    <span class="muted" id="source"></span>
+  </div>
+  <div class="container">
+    <div class="grid">
+      <div class="card">
+        <div class="form" id="filters">
+          <div>
+            <label>平台</label>
+            <select class="select" id="f-platform">
+              <option value="">全部</option>
+              <option value="qwen">qwen</option>
+              <option value="deepseek">deepseek</option>
+              <option value="kimi">kimi</option>
+            </select>
+          </div>
+          <div>
+            <label>模型</label>
+            <input class="input" id="f-model" placeholder="包含关键词" />
+          </div>
+          <div>
+            <label>操作</label>
+            <input class="input" id="f-operation" placeholder="如：decode_persona" />
+          </div>
+          <div>
+            <label>成功</label>
+            <select class="select" id="f-success">
+              <option value="">全部</option>
+              <option value="true">成功</option>
+              <option value="false">失败</option>
+            </select>
+          </div>
+          <div>
+            <label>搜索</label>
+            <input class="input" id="f-q" placeholder="按Query/Prompt/Error搜索" />
+          </div>
+          <div>
+            <label>数量</label>
+            <input class="input" id="f-limit" type="number" value="500" min="10" max="2000" />
+          </div>
+        </div>
+        <div class="controls" style="margin-top:10px">
+          <button class="btn" id="btn-refresh">刷新</button>
+          <button class="btn btn-secondary" id="btn-autorefresh">开启自动刷新</button>
+          <button class="btn btn-secondary" id="btn-stop">停止自动刷新</button>
+          <button class="btn btn-secondary" id="btn-clear">清空日志</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <table class="table" id="log-table">
+          <thead>
+            <tr>
+              <th class="nowrap">时间</th>
+              <th>平台</th>
+              <th>模型</th>
+              <th>操作</th>
+              <th>Query</th>
+              <th>Prompt</th>
+              <th>响应</th>
+              <th>成功</th>
+              <th>Error</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let timer = null;
+    function setSource(host, port) {
+      const el = document.getElementById('source');
+      el.textContent = `数据源：${location.protocol}//${host}:${port}/api/monitor`;
+    }
+    async function callApi(path, options) {
+      const host = location.hostname;
+      const ports = [3011, 3001];
+      for (const p of ports) {
+        try {
+          const r = await fetch(`${location.protocol}//${host}:${p}${path}`, options);
+          if (r.ok) { setSource(host, p); return r; }
+        } catch {}
+      }
+      throw new Error('后端不可达');
+    }
+    async function fetchLogs(limit) {
+      const res = await callApi(`/api/monitor/logs?limit=${encodeURIComponent(limit||500)}`);
+      const j = await res.json();
+      return j.logs || [];
+    }
+    function applyFilters(list) {
+      const platform = document.getElementById('f-platform').value.trim();
+      const model = document.getElementById('f-model').value.trim().toLowerCase();
+      const operation = document.getElementById('f-operation').value.trim().toLowerCase();
+      const success = document.getElementById('f-success').value.trim();
+      const q = document.getElementById('f-q').value.trim().toLowerCase();
+      return list.filter(l => {
+        if (platform && l.platform !== platform) return false;
+        if (model && String(l.model||'').toLowerCase().indexOf(model) < 0) return false;
+        if (operation && String(l.operation||'').toLowerCase().indexOf(operation) < 0) return false;
+        if (success && String(l.success) !== success) return false;
+        if (q) {
+          const blob = `${l.query||''} ${l.prompt||''} ${l.error||''}`.toLowerCase();
+          if (blob.indexOf(q) < 0) return false;
+        }
+        return true;
+      });
+    }
+    function renderTable(list) {
+      const tbody = document.querySelector('#log-table tbody');
+      tbody.innerHTML = '';
+      list.forEach(l => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="nowrap">${l.startedAt||''}</td>
+          <td>${l.platform||''}</td>
+          <td>${l.model||''}</td>
+          <td>${l.operation||''}</td>
+          <td>${l.query||''}</td>
+          <td><pre style="white-space: pre-wrap; margin:0">${(l.prompt||'')}</pre></td>
+          <td><pre style="white-space: pre-wrap; margin:0">${(l.response||'')}</pre></td>
+          <td>${String(l.success)}</td>
+          <td><pre style="white-space: pre-wrap; margin:0">${l.error||''}</pre></td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+    async function refresh() {
+      const limit = Math.max(10, Math.min(2000, Number(document.getElementById('f-limit').value||500)));
+      const logs = await fetchLogs(limit);
+      const filtered = applyFilters(logs);
+      renderTable(filtered);
+    }
+    document.getElementById('btn-refresh').addEventListener('click', refresh);
+    document.getElementById('btn-autorefresh').addEventListener('click', () => { if (timer) clearInterval(timer); timer = setInterval(refresh, 2000); });
+    document.getElementById('btn-stop').addEventListener('click', () => { if (timer) clearInterval(timer); timer = null; });
+    document.getElementById('btn-clear').addEventListener('click', async () => { await callApi('/api/monitor/logs', { method:'DELETE' }); refresh(); });
+    Array.from(document.querySelectorAll('#filters .input, #filters .select')).forEach(el => el.addEventListener('input', refresh));
+    refresh();
+  </script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+{
+  "name": "geo-app",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "concurrently \"npm --prefix server run dev\" \"npm --prefix web run dev\"",
+    "dev:server": "npm --prefix server run dev",
+    "dev:web": "npm --prefix web run dev"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.1"
+  }
+}

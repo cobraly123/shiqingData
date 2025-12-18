@@ -1,0 +1,5 @@
+/* 永久隐藏“天问页面”的 Query-回复表格，避免在主界面展示长文本回复导致布局拥挤。
+   原因：按产品需求，体检报告改为在独立页面查看，此处只保留进度与状态。 */
+.table-query-reply { display: none !important; }
+.analysis-table-container { transition: opacity .28s ease; }
+.analysis-table-hidden { opacity: 0; height: 0; overflow: hidden; pointer-events: none; }
