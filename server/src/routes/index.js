@@ -15,6 +15,9 @@ const router = express.Router();
 router.post('/auth/register', route((req, res) => AuthController.register(req, res)));
 router.post('/auth/login', route((req, res) => AuthController.login(req, res)));
 
+// 查看报告详情 (公开接口)
+router.get('/report/view', route(ReportController.viewReport));
+
 // 应用认证中间件 - 以下所有路由都需要登录
 // 注意：如果需要某些接口公开，请将其移到此行之前
 router.use(authMiddleware);
@@ -29,6 +32,8 @@ router.post('/decode', route(DecodeController.decode));
 // 查询词挖掘与策略接口 (Query Mining & Strategy)
 // 挖掘查询词
 router.post('/mine-queries', route(QueryController.mineQueries));
+// GEO问题生成器
+router.post('/generate-geo-questions', route(QueryController.generateGeoQuestions));
 // 测试策略生成
 router.get('/test-strategy', route(QueryController.testStrategy));
 // 扩展矩阵（预留）
@@ -47,10 +52,10 @@ router.post('/eval-queries', route(ReportController.evalQueries));
 router.post('/report/create', route(ReportController.createReport));
 // 获取报告状态
 router.get('/report/status', route(ReportController.getReportStatus));
-// 查看报告详情
-router.get('/report/view', route(ReportController.viewReport));
 // 分析来源域名
 router.post('/analyze-sources', route(ReportController.analyzeSources));
+// 分析竞品 (LLM提取)
+router.post('/analyze-competitors', route(ReportController.analyzeCompetitors));
 
 // 内容生成接口 (Content Generation)
 // 生成多渠道内容

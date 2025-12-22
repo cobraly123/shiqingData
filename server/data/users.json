@@ -6,5 +6,13 @@
     "password": "$2b$10$QrVg9qwQkLPd4uPLIApdtuxBbM4elN1dAWUkjybHHJI.2cOz96kw6",
     "role": "admin",
     "createdAt": "2025-12-15T04:34:56.883Z"
+  },
+  {
+    "id": "1766249482274",
+    "username": "testgeo",
+    "email": "testgeo@example.com",
+    "password": "$2b$10$a16o.R3xiUkL/SC8p8.v/OpgFxflPMWxe5Eq.c447YHnJXozkZil6",
+    "role": "user",
+    "createdAt": "2025-12-20T16:51:22.274Z"
   }
 ]

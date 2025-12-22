@@ -10,13 +10,14 @@ async function verifyAutoLogin() {
   const allModels = Object.keys(config.models);
   const models = (targetModel && targetModel !== 'all') ? [targetModel] : allModels;
   const isHeadless = process.env.HEADLESS === 'true' || args.includes('--headless');
+  const keepSession = args.includes('--keep-session');
 
   console.log(`--- Verifying Auto-Login for ${models.join(', ')} ---`);
   console.log(`Headless mode: ${isHeadless}`);
   
   // Clean up existing sessions to force auto-login via injection
   const sessionDir = 'data/sessions';
-  if (fs.existsSync(sessionDir)) {
+  if (fs.existsSync(sessionDir) && !keepSession) {
       const files = fs.readdirSync(sessionDir);
       for (const file of files) {
           const shouldDelete = models.some(m => file.includes(m));
@@ -25,6 +26,8 @@ async function verifyAutoLogin() {
               fs.unlinkSync(`${sessionDir}/${file}`);
           }
       }
+  } else if (keepSession) {
+      console.log('Skipping session cleanup (--keep-session enabled).');
   }
 
   await browserManager.initialize({ headless: isHeadless });

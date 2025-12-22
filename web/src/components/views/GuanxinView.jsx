@@ -40,8 +40,19 @@ export function GuanxinView({
   mined,
   sort,
   toggleSort,
-  goTianwen
+  goTianwen,
+  selectedQueries,
+  setSelectedQueries
 }) {
+  const allSelected = mined.length > 0 && mined.every(m => selectedQueries.has(m.query))
+  const toggleAll = () => {
+    if (allSelected) {
+      setSelectedQueries(new Set())
+    } else {
+      setSelectedQueries(new Set(mined.map(m => m.query)))
+    }
+  }
+
   return (
     <>
       {/* 1. 信息输入卡片 */}
@@ -203,6 +214,14 @@ export function GuanxinView({
                 <table className="table" style={{ margin: 0, borderCollapse: 'collapse' }}>
                   <thead style={{ position: 'sticky', top: 0, zIndex: 1, background: '#f3f4f6', color: '#374151', borderBottom: '1px solid #d1d5db' }}>
                     <tr>
+                      <th style={{ width: 40, borderRight: '1px solid #d1d5db', textAlign: 'center' }}>
+                        <input 
+                          type="checkbox" 
+                          checked={allSelected} 
+                          onChange={toggleAll}
+                          style={{ cursor: 'pointer' }}
+                        />
+                      </th>
                       <th style={{ width: 90, textTransform: 'uppercase', fontSize: 12, letterSpacing: '0.08em', color: '#374151', cursor: 'pointer', borderRight: '1px solid #d1d5db' }} onClick={() => toggleSort('score')}>
                         评分 {sort.key === 'score' ? (sort.dir === 'asc' ? '▲' : '▼') : ''}
                       </th>
@@ -217,7 +236,19 @@ export function GuanxinView({
                   </thead>
                   <tbody>
                     {mined.map((m, i) => (
-                      <RowItem key={i} item={m} selected={selected} onSelect={setSelected} />
+                      <RowItem 
+                        key={i} 
+                        item={m} 
+                        selected={selected} 
+                        onSelect={setSelected} 
+                        checked={selectedQueries.has(m.query)}
+                        onCheck={(checked) => {
+                          const next = new Set(selectedQueries)
+                          if (checked) next.add(m.query)
+                          else next.delete(m.query)
+                          setSelectedQueries(next)
+                        }}
+                      />
                     ))}
                   </tbody>
                 </table>

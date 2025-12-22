@@ -6,122 +6,73 @@ export class QwenPage extends BasePage {
   }
 
   async navigate() {
-    console.log(`Navigating to ${this.modelConfig.name} at ${this.modelConfig.url}`);
-    try {
-        // Use domcontentloaded and longer timeout to be more robust against network issues
-        await this.page.goto(this.modelConfig.url, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    } catch (e) {
-        console.log(`Navigation partial timeout or error: ${e.message}. Continuing...`);
-    }
+    await super.navigate();
   }
 
-  async handleLogin() {
-    console.log('Checking login status for Qwen...');
-    
-    try {
-      // Wait for UI to load (either input or login button)
-      await this.page.waitForSelector('textarea, #chat-input, text="登录"', { timeout: 10000 });
-
-      // Check for Login button first - if present, we are definitely NOT logged in
+  async isLoggedIn() {
+      // Strategy 1: Check for Login button (Fastest fail)
       const loginBtn = await this.page.$('text="登录"');
       if (loginBtn && await loginBtn.isVisible()) {
           console.log('Login button detected. Not logged in.');
-          // Fall through to cookie injection
-      } else {
-          // If no login button, check for input
-          if (await this.page.isVisible(this.modelConfig.selectors.input)) {
-              console.log('Already logged in (No login button found and input is visible).');
-              return true; 
+          return false;
+      }
+
+      // Strategy 2: Network Check (Most Reliable)
+      // Check for Qwen's user info or session API
+      // Common Qwen APIs: /api/v1/user/info, /api/v1/chat/history, or similar
+      // We perform a quick check if we can catch a relevant network request
+      // NOTE: This is best used during page load. If page is static, we might miss it.
+      // So we combine it with UI check.
+      
+      // Strategy 3: UI Check (Fallback)
+      if (await this.page.isVisible(this.modelConfig.selectors.input)) {
+          return true; 
+      }
+      
+      return false;
+  }
+
+  async handleLogin() {
+      // Special handling for Qwen's dual domain requirement
+      if (await this.isLoggedIn()) {
+          console.log('Already logged in.');
+          return true;
+      }
+
+      if (this.modelConfig.auth && this.modelConfig.auth.cookies) {
+          console.log('Injecting Qwen cookies (Dual Domain)...');
+          // Inject for both domains
+          await this.injectCookies(this.modelConfig.auth.cookies, '.aliyun.com');
+          await this.injectCookies(this.modelConfig.auth.cookies, '.qianwen.com');
+          
+          console.log('Reloading page and listening for auth signals...');
+          
+          // Setup Network Listener BEFORE reload to catch the boot-up requests
+          const authCheckPromise = this.checkLoginByNetwork('api/v1', 10000); // Generalized pattern for Qwen API
+          
+          await this.page.reload();
+          
+          // Wait for either Network Success OR UI Success
+          try {
+              // Race between network confirmation and UI timeout
+              const isNetworkAuth = await authCheckPromise;
+              if (isNetworkAuth) {
+                  console.log('Login confirmed via Network!');
+                  return true;
+              }
+          } catch (e) {
+              console.log('Network auth check timed out, falling back to UI check.');
+          }
+
+          await this.checkAndClosePopups();
+          
+          if (await this.isLoggedIn()) {
+              console.log('Auto-login successful (UI verified)!');
+              return true;
           }
       }
-    } catch (e) {
-      console.log('Login required or input not found immediately.');
-    }
-
-    // Auto-login via Cookie Injection
-    if (this.modelConfig.auth && this.modelConfig.auth.cookies) {
-        console.log('Injecting Qwen cookies...');
-        
-        // Clear existing cookies to ensure a clean state
-        await this.page.context().clearCookies();
-        
-        const rawCookies = this.modelConfig.auth.cookies;
-        const cookieArray = rawCookies.split('; ').map(pair => {
-            const index = pair.indexOf('=');
-            if (index === -1) return null;
-            const name = pair.substring(0, index).trim();
-            const value = pair.substring(index + 1).trim();
-            
-            // Domain logic refinement
-            // We need to inject into both .aliyun.com and .qianwen.com to be safe
-            // But since map returns one object, we'll handle duplication later or just default to .aliyun.com
-            // and let the browser handle subdomains if we are lucky.
-            // Better approach: returning an array of cookies for this pair
-            
-            return [
-                {
-                    name: name,
-                    value: value,
-                    domain: '.aliyun.com', 
-                    path: '/',
-                    secure: true
-                },
-                {
-                    name: name,
-                    value: value,
-                    domain: '.qianwen.com', 
-                    path: '/',
-                    secure: true
-                }
-            ];
-        }).flat().filter(c => c !== null); // Use flat() to flatten the array of arrays
-
-        await this.page.context().addCookies(cookieArray);
-        
-        console.log(`Injected ${cookieArray.length} cookies (dual-domain injection).`);
-        console.log('Reloading page...');
-        await this.page.reload();
-        await this.page.waitForTimeout(5000); // Wait for reload to settle
-        
-        try {
-            await this.page.waitForSelector(this.modelConfig.selectors.input, { timeout: 15000, state: 'visible' });
-            
-            // Strict check: If login button is visible, it's a FAILURE.
-            const loginBtnPost = await this.page.$('text="登录"');
-            if (loginBtnPost && await loginBtnPost.isVisible()) {
-                console.error('Login button is visible. Login FAILED.');
-                await this.page.screenshot({ path: 'reports/screenshots/qwen_login_fail_strict.png' });
-                throw new Error('Login button detected after cookie injection');
-            } else {
-                console.log('Auto-login successful! (No login button, input visible)');
-                return true;
-            }
-        } catch (e) {
-            console.error('Auto-login failed: ' + e.message);
-            await this.page.screenshot({ path: 'reports/screenshots/qwen_login_fail_catch.png' });
-        }
-    }
-
-    console.log('No credentials provided. Please login manually.');
-    console.log('Waiting for user to complete login...');
-    
-    // Wait for input box to appear - this is the signal that login is complete and we are on the chat page
-    // Increase timeout to 5 minutes to give user plenty of time
-    try {
-        await this.page.waitForSelector(this.modelConfig.selectors.input, { timeout: 300000, state: 'visible' });
-        console.log('Login detected! Chat input is visible.');
-        
-        // Debug: Print cookies after successful login
-        const cookies = await this.page.context().cookies();
-        console.log('--- Cookies after successful login ---');
-        console.log(cookies.map(c => `${c.name}=${c.value} (Domain: ${c.domain})`).join('\n'));
-        console.log('--------------------------------------');
-
-        return true; // New login occurred
-    } catch (e) {
-        console.error('Timeout waiting for login to complete.');
-        throw e;
-    }
+      
+      return super.handleLogin(); // Fallback to manual wait
   }
 
   async sendQuery(query) {

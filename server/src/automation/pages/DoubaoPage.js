@@ -5,97 +5,52 @@ export class DoubaoPage extends BasePage {
     super(page, 'doubao');
   }
 
-  async handleLogin() {
-    console.log('Checking login status for Doubao...');
-    
-    try {
-      // Check for Login button first - if present, we are definitely NOT logged in
+  async isLoggedIn() {
+      // Strategy 1: Check for Login button (Fastest fail)
       const loginBtn = await this.page.$('button[data-testid="login_button"], button:has-text("登录"), div[class*="login-btn"]');
       if (loginBtn && await loginBtn.isVisible()) {
           console.log('Login button detected. Not logged in.');
-          throw new Error('Login required');
+          return false;
       }
 
-      await this.page.waitForSelector(this.modelConfig.selectors.input, { timeout: 5000, state: 'visible' });
-      console.log('Already logged in.');
-      return true;
-    } catch (e) {
-      console.log('Login required or input not found immediately.');
+      // Strategy 2: Network Check (Most Reliable)
+      // Doubao calls /api/v1/user/get or similar
+      // We rely on handleLogin to set up the listener for this, but if called independently,
+      // we fall back to UI check.
+
+      // Strategy 3: Check for Input (Fallback)
+      const input = await this.page.$(this.modelConfig.selectors.input);
+      if (input && await input.isVisible()) {
+          return true;
+      }
+      
+      return false;
+  }
+
+  async handleLogin() {
+    // Setup Network Listener
+    // Doubao often uses /api/v1/user/get or /api/v1/conversation/list
+    const authCheckPromise = this.checkLoginByNetwork(/api\/v\d+\/(user|conversation)/, 10000);
+
+    // Call super.handleLogin which does the cookie injection and reload
+    const loginResult = await super.handleLogin(false); // Do not wait manually yet
+
+    // Check Network Result
+    try {
+        const isNetworkAuth = await Promise.race([
+            authCheckPromise,
+            new Promise(r => setTimeout(() => r(false), 1000)) // Short race
+        ]);
+        if (isNetworkAuth) {
+             console.log('Login confirmed via Network!');
+             return true;
+        }
+    } catch (e) {}
+
+    if (loginResult) {
+        return true;
     }
 
-    // Auto-login via Cookie Injection
-    if (this.modelConfig.auth && this.modelConfig.auth.cookies) {
-        console.log('Injecting Doubao cookies...');
-        
-        // Clear existing cookies to ensure a clean state
-        await this.page.context().clearCookies();
-        
-        const rawCookies = this.modelConfig.auth.cookies;
-        console.log(`Raw Cookie Length: ${rawCookies.length}`);
-
-        const cookieArray = [];
-        const pairs = rawCookies.split('; ');
-        
-        for (const pair of pairs) {
-            const index = pair.indexOf('=');
-            if (index === -1) continue;
-            const name = pair.substring(0, index).trim();
-            const value = pair.substring(index + 1).trim();
-            
-            // Push for root domain (most common)
-             cookieArray.push({
-                 name: name,
-                 value: value,
-                 domain: '.doubao.com',
-                 path: '/',
-                 secure: true,
-                 httpOnly: false
-             });
-             // Also push for www domain to be safe
-             cookieArray.push({
-                 name: name,
-                 value: value,
-                 domain: 'www.doubao.com',
-                 path: '/',
-                 secure: true,
-                 httpOnly: false
-             });
-         }
-         
-         console.log(`Parsed ${cookieArray.length} cookies (including duplicates for domains).`);
- 
-         if (cookieArray.length > 0) {
-             await this.page.context().addCookies(cookieArray);
-             
-             // Verify injection
-             const currentCookies = await this.page.context().cookies();
-             console.log(`Cookies in browser after injection: ${currentCookies.length}`);
-             
-             console.log('Cookies injected. Reloading page...');
-             await this.page.reload({ waitUntil: 'domcontentloaded' });
-             await this.page.waitForTimeout(5000); // Wait for auth check to complete
-             
-             // Check for popups after reload
-             await this.handlePopups();
- 
-             // Re-check login status
-             const loginBtnAfter = await this.page.$('button[data-testid="login_button"], button:has-text("登录"), div[class*="login-btn"]');
-             if (loginBtnAfter && await loginBtnAfter.isVisible()) {
-                 console.error('Login button still visible after injection. Cookie might be invalid or expired.');
-                 
-                 // Fallback to manual login
-                 console.log('Falling back to manual login wait...');
-             } else {
-                  console.log('Login button not found after injection. Assuming logged in.');
-                  return true;
-             }
-         } else {
-             console.error('No valid cookies parsed from config.');
-         }
-
-    } // End of cookie injection block
-
-    console.log('Please login manually to Doubao.');
     console.log('Waiting for user to complete login...');
     
     // Wait for login to complete (Login button to disappear or Input to appear)
@@ -117,35 +72,11 @@ export class DoubaoPage extends BasePage {
     }
   }
 
-  async handlePopups() {
-    console.log('Checking for popups...');
-    const closeSelectors = [
-        'div[class*="close-btn"]', 
-        'button[class*="close-btn"]', 
-        'div[class*="modal"] button[aria-label="Close"]',
-        'div[role="dialog"] button[aria-label="Close"]',
-        '.semi-modal-close' // Common class for Doubao/ByteDance apps using Semi Design
-    ];
-
-    for (const selector of closeSelectors) {
-        try {
-            const closeBtn = await this.page.$(selector);
-            if (closeBtn && await closeBtn.isVisible()) {
-                console.log(`Popup detected (${selector}), closing...`);
-                await closeBtn.click();
-                await this.page.waitForTimeout(500);
-            }
-        } catch (e) {
-            // Ignore errors during popup check
-        }
-    }
-  }
-
   async sendQuery(query) {
     const selectors = this.modelConfig.selectors;
     
     // Check and handle popups before interacting
-    await this.handlePopups();
+    await this.checkAndClosePopups();
 
     // Wait for input
     await this.page.waitForSelector(selectors.input, { state: 'visible' });
@@ -197,130 +128,31 @@ export class DoubaoPage extends BasePage {
     await this.page.waitForTimeout(1000);
     const submitBtn = await this.page.$(selectors.submit);
     if (submitBtn) {
-        const isDisabled = await submitBtn.getAttribute('disabled');
-        const className = await submitBtn.getAttribute('class');
-        console.log(`Submit button found. Disabled: ${isDisabled}, Class: ${className}`);
-        
-        // Ensure enabled
-        if (isDisabled !== null) {
-            console.log('Force enabling submit button...');
-            await this.page.evaluate((selector) => {
-                const btn = document.querySelector(selector);
-                if (btn) btn.removeAttribute('disabled');
-            }, selectors.submit);
+        try {
+            await submitBtn.click();
+        } catch (e) {
+             console.log('Click failed, trying force click', e.message);
+             await submitBtn.click({ force: true });
         }
     } else {
-        console.log('Submit button NOT found!');
-    }
-
-    // Try pressing Enter first
-    console.log('Pressing Enter to submit...');
-    await this.page.keyboard.press('Enter');
-    await this.page.waitForTimeout(2000);
-
-    // Check if input is empty (success indicator)
-    const inputValue = await this.page.$eval(selectors.input, el => el.value || el.innerText || el.textContent);
-    console.log(`Input value after Enter: "${inputValue.trim()}"`);
-
-    if (inputValue.trim().length === 0) {
-        console.log('Input is empty, assume sent.');
-        return;
-    }
-
-    // Backup: Click submit
-    if (submitBtn && await submitBtn.isVisible()) {
-        console.log('Submit button visible, trying click...');
-        try {
-             await submitBtn.click({ force: true });
-        } catch (e) {
-             console.log('Standard click failed, trying JS click...');
-             await this.page.evaluate((selector) => {
-                 const btn = document.querySelector(selector);
-                 if (btn) btn.click();
-             }, selectors.submit);
-        }
+        await this.page.press(selectors.input, 'Enter');
     }
   }
 
   async extractResponse() {
     const selectors = this.modelConfig.selectors;
-    
-    // Wait for the response to start generating
     try {
-        await this.page.waitForSelector(selectors.response, { timeout: 30000 });
+        // Get all response elements and pick the last one usually
+        const responses = await this.page.$$(selectors.response);
+        if (responses.length > 0) {
+            const lastResponse = responses[responses.length - 1];
+            // Use innerText instead of textContent to preserve newlines and formatting
+            return await lastResponse.innerText();
+        }
+        return null;
     } catch (e) {
-        console.log('Response selector not found within 30s.');
+        console.error('Failed to extract response:', e);
         return null;
     }
-    
-    // Smart Wait: Wait for generation to complete
-    await this.waitForGenerationToComplete(selectors.response);
-
-    // Get the last response bubble
-    const responses = await this.page.$$(selectors.response);
-    if (responses.length > 0) {
-        const lastResponse = responses[responses.length - 1];
-        
-        // Extract Text
-        const text = await lastResponse.textContent();
-        
-        return {
-            text: text,
-            rawHtml: await lastResponse.innerHTML()
-        };
-    }
-    return null;
-  }
-
-  async waitForGenerationToComplete(responseSelector) {
-    // Improved implementation:
-    // 1. Wait for "Regenerate" button to appear (strong signal of completion)
-    // 2. Fallback to stability check (content length/height not changing)
-    // 3. Max timeout 120s
-    
-    console.log('Waiting for generation to complete...');
-    const startTime = Date.now();
-    const maxDuration = 120000; // 2 minutes
-    const stabilityThreshold = 5000; // 5 seconds of no change
-    
-    let lastTextLength = 0;
-    let lastChangeTime = Date.now();
-    
-    while (Date.now() - startTime < maxDuration) {
-        // Check 1: Is "Regenerate" button visible?
-        // Note: Selector might need adjustment based on exact UI
-        const regenerateBtn = await this.page.$(this.modelConfig.selectors.regenerate || 'div[class*="regenerate"], div[class*="refresh"], span:has-text("重新生成")');
-        if (regenerateBtn && await regenerateBtn.isVisible()) {
-            console.log('Generation complete (Regenerate button detected).');
-            return;
-        }
-
-        // Check 2: Content stability
-        try {
-            const responses = await this.page.$$(responseSelector);
-            if (responses.length > 0) {
-                const lastResponse = responses[responses.length - 1];
-                const text = await lastResponse.textContent();
-                const currentLength = text.length;
-                
-                if (currentLength !== lastTextLength) {
-                    lastTextLength = currentLength;
-                    lastChangeTime = Date.now();
-                } else {
-                    // Content hasn't changed
-                    if (Date.now() - lastChangeTime > stabilityThreshold) {
-                        console.log('Generation complete (Content stable).');
-                        return;
-                    }
-                }
-            }
-        } catch (e) {
-            console.log('Error checking stability, retrying...', e.message);
-        }
-        
-        await this.page.waitForTimeout(1000);
-    }
-    
-    console.log('Warning: Timeout waiting for generation to complete.');
   }
 }

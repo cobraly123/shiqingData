@@ -1,13 +1,78 @@
 import { BasePage } from './BasePage.js';
 
 export class YuanbaoPage extends BasePage {
-  constructor(page, modelConfig) {
-    super(page, modelConfig);
+  constructor(page) {
+    super(page, 'yuanbao');
+  }
+
+  async isLoggedIn() {
+      // 1. Check for Login Button (Strong indicator of NOT logged in)
+      const loginBtnSelector = 'button:has-text("登录"), div:has-text("登录"):visible, .agent-dialogue__tool__login';
+      const loginBtn = await this.page.$(loginBtnSelector);
+      
+      if (loginBtn) {
+          const isVisible = await loginBtn.isVisible();
+          console.log(`Login button found (${loginBtnSelector}). Visible: ${isVisible}`);
+          if (isVisible) {
+              console.log('Login button detected and visible. Not logged in.');
+              return false;
+          }
+      } else {
+          console.log('Login button not found.');
+      }
+
+      // 2. Check for User Avatar (Strong indicator of logged in)
+      const avatarSelector = '.user-avatar, img[alt*="头像"], .user-center-avatar';
+      const avatar = await this.page.$(avatarSelector);
+      if (avatar && await avatar.isVisible()) {
+          console.log('User avatar found. Logged in.');
+          return true;
+      }
+      console.log('User avatar not found.');
+
+      // 3. Fallback: Check for Input
+      try {
+        const input = await this.page.waitForSelector(this.modelConfig.selectors.input, { timeout: 5000, state: 'visible' });
+        const placeholder = await input.getAttribute('placeholder');
+        console.log(`Input found. Placeholder: ${placeholder}`);
+        
+        console.log('Input found but Avatar not found. Assuming not logged in (or Guest mode).');
+        return false;
+      } catch (e) {
+        console.log('Input not found or not visible.');
+        return false;
+      }
+  }
+
+  async handleLogin() {
+    // Setup Network Listener
+    // Yuanbao uses /api/user/info or similar
+    const authCheckPromise = this.checkLoginByNetwork(/api\/(user|chat|conversation)/, 10000);
+
+    const result = await super.handleLogin(false);
+
+    // Check Network
+    try {
+        const isNetworkAuth = await Promise.race([
+            authCheckPromise,
+            new Promise(r => setTimeout(() => r(false), 1000))
+        ]);
+        if (isNetworkAuth) {
+             console.log('Login confirmed via Network!');
+             return true;
+        }
+    } catch (e) {}
+
+    if (result) return true;
+
+    return await this.waitForManualLogin();
   }
 
   async sendQuery(query) {
     const selectors = this.modelConfig.selectors;
     
+    await this.checkAndClosePopups();
+
     // Wait for input to be ready
     await this.page.waitForSelector(selectors.input, { state: 'visible', timeout: 15000 });
     
@@ -30,6 +95,13 @@ export class YuanbaoPage extends BasePage {
     await this.page.keyboard.press('Enter');
     await this.page.waitForTimeout(2000);
 
+    // Check if login modal appeared after Enter
+    const loginModal = await this.page.$('.login-modal, div[class*="login-dialog"], .t-dialog');
+    if (loginModal && await loginModal.isVisible()) {
+        console.error('Login modal appeared after submitting query!');
+        throw new Error('Login required to chat');
+    }
+
     // Backup: Click submit if button exists and looks active
     const submitBtn = await this.page.$(selectors.submit);
     if (submitBtn && await submitBtn.isVisible()) {
@@ -47,12 +119,12 @@ export class YuanbaoPage extends BasePage {
 
   async waitForResponse(timeout = 30000) {
     // Override base method to use a broader selector check and stabilization
+    // BUT avoid matching homepage suggestions.
     const selectors = [
         '.answer-content', 
         '.markdown-body', 
-        'div[class*="message"]', 
-        'div[class*="content"]',
-        '.agent-message-content' // Potential class for Yuanbao
+        '.agent-message-content',
+        // 'div[class*="agent-chat"]' // Too broad
     ];
     
     const combinedSelector = selectors.join(', ');
@@ -93,7 +165,6 @@ export class YuanbaoPage extends BasePage {
         const text = await lastElement.textContent();
         
         // Basic heuristic: text length > 0 and unchanged for 1 sec
-        // Also check if "Thinking" or loading indicators are gone if possible
         if (text === lastText && text.length > 0) { 
             console.log('Generation complete (Content stable).');
             return;
@@ -101,6 +172,6 @@ export class YuanbaoPage extends BasePage {
         lastText = text;
         retries++;
     }
-    console.log('Generation wait timed out or stabilized.');
+    console.log('Generation wait timeout, returning current content.');
   }
 }

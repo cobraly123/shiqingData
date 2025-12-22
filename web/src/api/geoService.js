@@ -21,6 +21,13 @@ export const geoService = {
   mineQueries: (data) => post('/api/mine-queries', data),
 
   /**
+   * 生成GEO问题
+   * @param {Object} data - 请求数据
+   * @returns {Promise<any>}
+   */
+  generateGeoQuestions: (data) => post('/api/generate-geo-questions', data),
+
+  /**
    * 扩展矩阵（预留）
    * @param {Object} data - 请求数据
    * @returns {Promise<any>}
@@ -77,6 +84,20 @@ export const geoService = {
     const query = new URLSearchParams(params).toString()
     return get(`/api/test-strategy?${query}`)
   },
+
+  /**
+   * 分析来源
+   * @param {Object} data 
+   * @returns {Promise<any>}
+   */
+  analyzeSources: (data) => post('/api/analyze-sources', data),
+
+  /**
+   * 分析竞品
+   * @param {Object} data { text: string }
+   * @returns {Promise<any>}
+   */
+  analyzeCompetitors: (data) => post('/api/analyze-competitors', data),
 
   /**
    * 生成内容

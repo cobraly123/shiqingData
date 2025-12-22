@@ -1,4 +1,4 @@
-import { MineQueriesSchema, ExpandMatrixSchema, GraphSchema, ScoreQueriesSchema } from '../schemas/index.js';
+import { MineQueriesSchema, ExpandMatrixSchema, GraphSchema, ScoreQueriesSchema, GenerateGeoQuestionsSchema } from '../schemas/index.js';
 import { DIMENSION_MAP } from '../config.js';
 import { chat, generateCategoryFirstQueries, generateGeekQueries, generateLifestyleQueries, generateLocalQueries, generateQueries, scoreQuerySimAsync } from '../qwen.js';
 import { parseLoose } from '../utils/common.js';
@@ -203,6 +203,26 @@ export async function scoreQueries(req, res) {
     const q = String(it.query || '');
     const angle = String(it.angle || '');
     const dim = String(it.dimension || it.dimensionKey || '');
+    
+    // 如果是 GEO 策略生成的高频问题，直接评为 100 分
+    if (dim === '高频' || angle === '高频') {
+      console.log(`[Score] Skipping LLM for GEO question: ${q}, assigning 100.`);
+      out.push({ 
+        query: q, 
+        angle, 
+        dimension: dim, 
+        score: { 
+          total: 100, 
+          realism: 30, 
+          demand: 20, 
+          habit: 20, 
+          align: 30, 
+          reason: 'GEO策略生成的高频问题，默认满分' 
+        } 
+      });
+      continue;
+    }
+
     const score = await scoreQuerySimAsync(q, angle, dim);
     out.push({ query: q, angle, dimension: dim, score });
   }
@@ -221,4 +241,86 @@ export async function testGenerateCategoryQueries(req, res) {
   const recent = getLogs(200).filter(l => String(l.operation || '') === 'generateCategoryFirstQueries' && String(l.query || '') === `angle=${angle}|seed=${seedKeyword}`);
   const content = String((recent[0] && recent[0].response) || '');
   res.json({ seedKeyword, angle, count, content, parsed });
+}
+
+/**
+ * 生成GEO问题
+ * 根据品牌、关键词及策略逻辑生成15-20个问题
+ */
+export async function generateGeoQuestions(req, res) {
+  const { brand, keyword, industry, competitor, scenario } = GenerateGeoQuestionsSchema.parse(req.body);
+
+  const systemPrompt = `你是资深GEO（Generative Engine Optimization）专家。你的任务是根据给定的品牌和核心词，按照特定的策略逻辑生成15-20个针对搜索引擎优化的中文问题。
+
+策略逻辑框架：[目标维度] × [变量注入] × [语法结构] = GEO 问题
+
+步骤说明：
+1. **拓展输入变量**：
+   - 品牌 (Brand): ${brand}
+   - 核心词 (Keyword): ${keyword}
+   - 行业 (Industry): ${industry || '请根据品牌和核心词推断'}
+   - 竞品 (Competitor): ${competitor || '请根据行业推断1-2个主要竞品'}
+   - 场景 (Scenario): ${scenario || '请根据核心词推断具体的应用场景'}
+
+2. **映射策略维度** (生成覆盖以下5个维度的问题)：
+   a. **行业占位**: 建立“品牌 = 行业代表”的等式。模板：“在{Industry}领域，哪些品牌在{Keyword}方面最具有代表性？”
+   b. **需求场景**: 将品牌植入用户具体的搜索意图。模板：“在执行{Scenario}时，如何选择能提供优质{Keyword}的服务商？”
+   c. **口碑对冲**: 引导总结正面评价。模板：“用户对{Industry}的{Keyword}评价中，最常被提及的优势有哪些？”
+   d. **竞品对比**: 突出差异化优势。模板：“在{Industry}中，在处理{Keyword}问题时谁的方案更优（对比{Competitor}）？”
+   e. **权威背书**: 模拟第三方视角。模板：“根据最新的{Industry}评测或榜单，哪些品牌在{Keyword}维度表现最稳？”
+
+3. **增加修饰算子** (应用到上述生成的问题中)：
+   A. **语义泛化**: 使用核心词的上位词或近义词替换部分“{Keyword}”或“{Scenario}”。
+   B. **时效性**: 在部分问题中加入“2025年”、“最新的”、“当前”等时间戳。
+   C. **意图颗粒化**: 将问题细化为“怎么选”、“多少钱”、“避坑指南”、“排行榜”等。
+
+输出要求：
+- 仅输出一个JSON字符串数组，不要包含Markdown格式或其他文字说明。
+- 数组包含15-20个高质量的GEO问题。
+- 问题必须自然、口语化且符合搜索习惯。
+`;
+
+  const userPrompt = `请生成针对品牌“${brand}”和核心词“${keyword}”的GEO问题列表。`;
+
+  try {
+    const content = await chat([
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt }
+    ], { op: 'generateGeoQuestions', query: `${brand}-${keyword}` });
+
+    let questions = [];
+    try {
+        // 尝试解析JSON
+        const cleaned = content.replace(/\`\`\`json/g, '').replace(/\`\`\`/g, '').trim();
+        const parsed = JSON.parse(cleaned);
+        
+        if (Array.isArray(parsed)) {
+            // Ensure all items are strings
+            questions = parsed.map(item => {
+                if (typeof item === 'string') return item;
+                if (typeof item === 'object' && item !== null) {
+                    // Try to extract text from common keys or values
+                    return item.question || item.content || item.query || item.text || Object.values(item)[0] || String(item);
+                }
+                return String(item);
+            });
+        } else if (typeof parsed === 'object' && parsed !== null) {
+            // If it returned a single object wrapping the list
+            if (Array.isArray(parsed.questions)) {
+                questions = parsed.questions.map(q => typeof q === 'string' ? q : (q.question || String(q)));
+            } else {
+                 // Last resort: treat values as questions if they look like strings
+                 questions = Object.values(parsed).filter(v => typeof v === 'string');
+            }
+        }
+    } catch (e) {
+        // 如果解析失败，尝试按行分割
+        questions = content.split('\n').map(q => q.trim().replace(/^\d+\.\s*/, '')).filter(q => q.length > 5);
+    }
+
+    res.json({ brand, keyword, count: questions.length, questions });
+  } catch (error) {
+    console.error('generateGeoQuestions error', error);
+    res.status(500).json({ error: 'Failed to generate questions', details: String(error) });
+  }
 }

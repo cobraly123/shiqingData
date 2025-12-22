@@ -11,421 +11,282 @@ export class KimiPage extends BasePage {
         await this.page.goto(this.modelConfig.url, { waitUntil: 'domcontentloaded', timeout: 60000 });
         // Optional: wait for a specific element instead of networkidle
         await this.page.waitForTimeout(2000); 
+        await this.checkAndClosePopups();
     } catch (e) {
         console.log('Navigation timeout or error, but continuing if possible...', e.message);
     }
   }
 
-  async sendQuery(query) {
-    const selectors = this.modelConfig.selectors;
-    
-    // Wait for input
-    await this.page.waitForSelector(selectors.input, { state: 'visible' });
-    
-    // Type query
-    await this.page.fill(selectors.input, query);
-    await this.page.waitForTimeout(1000);
-
-    // Try pressing Enter
-    console.log('Pressing Enter to submit...');
-    await this.page.press(selectors.input, 'Enter');
-    await this.page.waitForTimeout(1000);
-
-    // Backup: Click submit
-    const submitBtn = await this.page.$(selectors.submit);
-    if (submitBtn && await submitBtn.isVisible()) {
-        console.log('Clicking submit button as backup...');
-        try {
-             await submitBtn.click({ force: true });
-        } catch (e) {
-            console.log('Click failed:', e.message);
+  async isLoggedIn() {
+      try {
+        // Check for Login button first (Guest mode detection)
+        // Kimi usually shows "登录/注册" or similar when not logged in
+        const loginText = this.page.getByText('登录', { exact: true });
+        const loginBtn = this.page.getByRole('button', { name: '登录' });
+        
+        if ((await loginText.isVisible()) || (await loginBtn.isVisible())) {
+            console.log('Found "Login" text/button, determining as NOT logged in.');
+            return false;
         }
-    }
+
+        // Simple check: if input is visible, we are logged in
+        await this.page.waitForSelector(this.modelConfig.selectors.input, { timeout: 5000, state: 'visible' });
+        return true;
+      } catch (e) {
+        return false;
+      }
   }
 
   async handleLogin() {
     console.log('Checking login status for Kimi...');
     
-    let cookieInjectionAttempted = false;
-
-    // 1. Auto-login via Cookie Injection (Priority)
-    if (this.modelConfig.auth && this.modelConfig.auth.cookies) {
-        const rawCookies = this.modelConfig.auth.cookies.trim();
-        
-        // Check if it looks like a cookie string (contains '=' and not just a token)
-        // A simple check: if it starts with 'ey', it's likely a JWT token, not a cookie string.
-        if (rawCookies.length > 0 && rawCookies.includes('=') && !rawCookies.startsWith('eyJ')) {
-            console.log('Injecting Kimi cookies...');
-            
-            // Clear existing cookies
-            await this.page.context().clearCookies();
-    
-            const cookieArray = rawCookies.split('; ').map(pair => {
-                const index = pair.indexOf('=');
-                if (index === -1) return null;
-                const name = pair.substring(0, index);
-                const value = pair.substring(index + 1);
-                return {
-                    name: name.trim(),
-                    value: value.trim(),
-                    domain: '.kimi.com', // Adjust domain if needed
-                    path: '/',
-                    secure: true
-                };
-            }).filter(c => c !== null);
-    
-            if (cookieArray.length > 0) {
-                await this.page.context().addCookies(cookieArray);
-                
-                console.log(`Injected ${cookieArray.length} cookies. Reloading page...`);
-                await this.page.reload();
-                await this.page.waitForTimeout(5000);
-                
-                cookieInjectionAttempted = true;
-
-                try {
-                    await this.page.waitForSelector(this.modelConfig.selectors.input, { timeout: 10000, state: 'visible' });
-                    console.log('Auto-login successful via Cookies!');
-                    return true;
-                } catch (e) {
-                    console.error('Auto-login failed after cookie injection.');
-                }
-            } else {
-                console.log('Parsed cookie array is empty. Skipping cookie injection.');
-            }
-        } else {
-             console.log('Provided cookie string does not look like valid cookies (might be a token). Skipping cookie injection.');
-        }
-    }
-
-    // 2. Auto-login via Token Injection (Fallback)
-    // We prioritize token injection to ensure a valid authenticated session
-    if (this.modelConfig.auth && this.modelConfig.auth.token) {
-        // Avoid double reload if we just tried cookies and failed
-        if (!cookieInjectionAttempted) {
-             console.log('Checking token configuration...');
-        } else {
-             console.log('Falling back to Token injection...');
-        }
-
+    // Strategy 0: Direct Token Injection (Most Reliable for Kimi)
+    if (this.modelConfig.auth.token) {
+        console.log('Found KIMI_TOKEN, injecting into localStorage...');
         const token = this.modelConfig.auth.token;
-        if (token && token.startsWith('eyJ')) {
-            console.log('Injecting Kimi access token...');
-            
-            // Clear existing tokens
-            await this.page.evaluate(() => localStorage.clear());
-            
-            await this.page.evaluate((token) => {
-                localStorage.setItem('access_token', token);
-                localStorage.setItem('refresh_token', token);
-            }, token);
-            
-            console.log('Token injected. Reloading page...');
-            await this.page.reload();
-            await this.page.waitForTimeout(5000); // Wait for app to load
-            
-            try {
-                await this.page.waitForSelector(this.modelConfig.selectors.input, { timeout: 15000, state: 'visible' });
-                console.log('Auto-login successful via Token!');
-                return true;
-            } catch (e) {
-                console.error('Auto-login failed after token injection.');
-            }
-        } else {
-            console.log('Invalid token format (should be JWT). Skipping token injection.');
-        }
-    }
-
-    try {
-      await this.page.waitForSelector(this.modelConfig.selectors.input, { timeout: 5000, state: 'visible' });
-      console.log('Already logged in (or guest mode).');
-      return true;
-    } catch (e) {
-      console.log('Login required.');
-    }
-
-
-    console.log('Please login manually to Kimi (Moonshot).');
-    console.log('Waiting for user to complete login...');
-    
-    try {
-        await this.page.waitForSelector(this.modelConfig.selectors.input, { timeout: 300000, state: 'visible' });
-        console.log('Login detected! Chat input is visible.');
-        return true;
-    } catch (e) {
-        console.error('Timeout waiting for login to complete.');
-        throw e;
-    }
-  }
-
-  async handlePopups() {
-    console.log('Checking for popups (Smart Scan)...');
-    
-    // 1. Defined Selectors (Fast & Specific)
-    // Keep adding known specific cases here for speed
-    const knownSelectors = [
-        'div[class*="christmas-dialog"] .close',
-        'div[class*="christmas-dialog"] svg',
-        'div[class*="christmas-dialog"] [class*="close"]',
-        'div[class*="christmas-dialog"] img',
-        'div[class*="download-guide"] .close',
-        'div[class*="promotion"] .close',
-        '.popover-close',
-        'button[aria-label="Close"]',
-        'button[aria-label="关闭"]',
-        'button:has-text("我知道了")',
-        'button:has-text("关闭")'
-    ];
-
-    // Try known selectors first
-    for (const selector of knownSelectors) {
-        try {
-            const el = await this.page.$(selector);
-            if (el && await el.isVisible()) {
-                console.log(`Known popup detected (${selector}), closing...`);
-                await el.click();
-                await this.page.waitForTimeout(500);
-                return; // Return early if handled
-            }
-        } catch (e) {}
-    }
-
-    // 2. Generic DOM Scan (In-Browser execution for complex logic)
-    // This finds any visible dialog/modal and tries to find a close button inside it
-    const closedGeneric = await this.page.evaluate(() => {
-        // Keywords that usually indicate a popup container
-        const popupKeywords = ['dialog', 'modal', 'popup', 'overlay', 'promotion', 'banner', 'guide'];
         
-        // Helper to check if element is visible
-        const isVisible = (el) => {
-            const style = window.getComputedStyle(el);
-            return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0' && el.offsetWidth > 0 && el.offsetHeight > 0;
-        };
-
-        // Find potential containers
-        const divs = document.querySelectorAll('div, section, aside');
-        for (const div of divs) {
-            const className = (div.className || '').toLowerCase();
-            const role = div.getAttribute('role');
-            
-            // Check if it matches popup criteria
-            const isPopup = role === 'dialog' || 
-                            role === 'alertdialog' || 
-                            popupKeywords.some(kw => className.includes(kw));
-            
-            if (isPopup && isVisible(div)) {
-                // It looks like a popup. Look for a close button inside.
-                // 1. Look for explicit close buttons
-                const closeBtn = div.querySelector('button[aria-label*="Close"], button[aria-label*="关闭"], .close, [class*="close"], svg, img[alt*="close"]');
-                
-                if (closeBtn && isVisible(closeBtn)) {
-                    closeBtn.click();
-                    return `Closed generic popup: ${className}`;
-                }
-                
-                // 2. Look for text buttons like "Close", "No thanks"
-                const buttons = div.querySelectorAll('button, div[role="button"]');
-                for (const btn of buttons) {
-                    if (isVisible(btn)) {
-                        const text = btn.innerText.trim();
-                        if (['关闭', 'close', '我知道了', 'no thanks', 'later'].some(t => text.toLowerCase().includes(t))) {
-                            btn.click();
-                            return `Closed generic popup via text "${text}" in ${className}`;
-                        }
-                    }
-                }
-            }
+        await this.page.evaluate((t) => {
+            localStorage.setItem('access_token', t);
+            localStorage.setItem('refresh_token', t);
+            console.log('Injected access_token and refresh_token into localStorage');
+        }, token);
+        
+        // Reload to apply changes
+        console.log('Reloading page to apply token...');
+        await this.page.reload({ waitUntil: 'domcontentloaded' });
+        await this.page.waitForTimeout(3000);
+        
+        if (await this.isLoggedIn()) {
+            console.log('Login successful via Token Injection!');
+            return true;
+        } else {
+            console.log('Token Injection failed to log in. Token might be expired.');
         }
-        return null;
-    });
-
-    if (closedGeneric) {
-        console.log(closedGeneric);
-        await this.page.waitForTimeout(500);
     }
-  }
 
-  // New method to handle elements blocking our click
-  async handleBlockingElement(errorMessage) {
-      console.log('Attempting to remove blocking element based on error...');
-      
-      // Try to parse the tag and class from error message
-      // Error format usually: ... <div class="christmas-dialog">...</div> intercepts pointer events ...
-      const match = errorMessage.match(/<(\w+)([^>]*?)>.*?intercepts pointer events/);
-      
-      if (match) {
-          const tagName = match[1];
-          const attrs = match[2]; // e.g. ' class="foo" id="bar"'
-          
-          console.log(`Detected intercepting element: <${tagName} ${attrs}>`);
-          
-          // Use page.evaluate to find and remove this specific element
-          // This is aggressive ("Nuke it") but effective for automation if we can't close it nicely
-          await this.page.evaluate(({tagName, attrs}) => {
-              // Helper to match attributes crudely
-              const elements = document.querySelectorAll(tagName);
-              for (const el of elements) {
-                  // If the element's outerHTML includes some unique parts of the error message, it's likely the one
-                  // Or we can just check if it covers the center of the screen
-                  if (el.outerHTML.includes(attrs.trim().split(' ')[0])) { // Simple heuristic
-                      console.log('Removing blocking element from DOM');
-                      el.remove();
-                  }
-              }
-              
-              // Fallback: Remove top-most covering element
-              // This is risky but solves "invisible overlay" issues
-              const centerEl = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2);
-              if (centerEl && centerEl !== document.body) {
-                   // If it's a dialog/overlay, remove it
-                   if (centerEl.className.includes('dialog') || centerEl.className.includes('modal') || parseInt(getComputedStyle(centerEl).zIndex) > 1000) {
-                       centerEl.remove();
-                   }
-              }
-          }, { tagName, attrs });
-      }
-  }
+    // Strategy 1: Inject LocalStorage JSON if configured (Legacy)
+    if (this.modelConfig.auth.localStorage) {
+         let lsData = {};
+         try {
+             lsData = JSON.parse(this.modelConfig.auth.localStorage);
+         } catch(e) {
+             console.error('Failed to parse KIMI_LOCAL_STORAGE JSON:', e);
+         }
+         
+         if (Object.keys(lsData).length > 0) {
+             console.log('Injecting LocalStorage JSON for Kimi...');
+             await this.injectLocalStorage(lsData);
+             await this.page.reload();
+             await this.page.waitForTimeout(3000);
+         }
+    }
+    
+    // Strategy 2: Standard Cookie Injection
+    return await super.handleLogin(true);
+   }
 
   async sendQuery(query) {
     const selectors = this.modelConfig.selectors;
     
-    // Wait for input to be visible
-    await this.page.waitForSelector(selectors.input, { state: 'visible' });
+    await this.checkAndClosePopups();
     
-    // Check for and close any blocking dialogs
-    await this.handlePopups();
+    // Wait for input
+    const input = await this.page.waitForSelector(selectors.input, { state: 'visible' });
+    
+    // Focus and Type query
+     await input.click();
+     await input.focus();
+     await this.page.waitForTimeout(500);
+     await input.fill(query);
+     
+     // Dispatch input event to ensure React/Vue detects change
+     await input.dispatchEvent('input', { bubbles: true });
+     await input.dispatchEvent('change', { bubbles: true });
+     await this.page.waitForTimeout(1000);
+ 
+     // Try pressing Enter
+     console.log('Pressing Enter to submit...');
+     await this.page.keyboard.press('Enter');
+     await this.page.waitForTimeout(2000);
+ 
+     // Check if input is cleared (message sent)
+     const inputValue = await input.innerText();
+     if (inputValue.trim() === '') {
+         console.log('Input cleared, assuming message sent via Enter.');
+         return;
+     }
+ 
+     console.log('Input not cleared, trying submit button...');
+ 
+     // Backup: Click submit
+     // Try to find the button more robustly
+     let submitBtn = await this.page.$(selectors.submit);
+     if (submitBtn) {
+         // Check if it's a container and has a child button/icon
+         const childBtn = await submitBtn.$('button, svg, div[role="button"]');
+         if (childBtn) {
+             console.log('Found child element in submit container, using that.');
+             submitBtn = childBtn;
+         }
 
-    // Small wait to ensure focus
-    await this.page.waitForTimeout(500);
-
-    // Type query
-    await this.page.fill(selectors.input, query);
-    
-    // Wait for UI to update (button enablement)
-    await this.page.waitForTimeout(1000);
-    
-    // Try to find and click submit button first
-    let submitBtn = await this.page.$(selectors.submit);
-    if (submitBtn && await submitBtn.isVisible()) {
-        console.log('Submit button found, clicking...');
-        try {
-            // First try a normal click to see if it works
-            await submitBtn.click({ timeout: 2000 }); 
-        } catch (e) {
-             console.log('First click failed. Error:', e.message);
+         if (await submitBtn.isVisible()) {
+             const isDisabled = await submitBtn.isDisabled();
+             const isEnabledClass = await submitBtn.getAttribute('class');
+             // Kimi submit button might be a div, so isDisabled() might not work. Check class for 'disabled'.
              
-             // Check if it was an interception error
-             if (e.message.includes('intercepts pointer events')) {
-                 await this.handleBlockingElement(e.message);
-             } else {
-                 console.log('Handling popups (generic scan)...');
-                 await this.handlePopups();
-             }
+             console.log(`Found submit button. Classes: ${isEnabledClass}`);
              
-             // Wait a bit for overlays to fade
-             await this.page.waitForTimeout(1000);
- 
-             // Re-query button just in case
-             submitBtn = await this.page.$(selectors.submit);
-             if (submitBtn) {
-                 // Check if disabled
-                 const isDisabled = await submitBtn.getAttribute('disabled') !== null;
-                 console.log(`Retry: Button found. Disabled: ${isDisabled}`);
- 
-                 if (isDisabled) {
-                     console.log('Button is disabled, triggering input events...');
-                     await this.page.click(selectors.input);
-                     await this.page.keyboard.type(' ');
-                     await this.page.keyboard.press('Backspace');
-                     await this.page.waitForTimeout(500);
-                 }
- 
-                 console.log('Retrying click...');
-                 try {
-                    await submitBtn.click({ timeout: 5000 });
-                 } catch (e2) {
-                    console.log('Retry click failed:', e2.message);
-                    console.log('Attempting force click (bypassing checks)...');
-                    await submitBtn.click({ force: true });
-                 }
-             }
+             console.log('Clicking submit button as backup...');
+             await submitBtn.click({ force: true });
+             await this.page.waitForTimeout(2000);
+        } else {
+            console.log('Submit button found but not visible.');
         }
     } else {
-        console.log('Submit button not found, pressing Enter...');
-        await this.page.press(selectors.input, 'Enter');
+        console.log('Submit button not found with selector:', selectors.submit);
     }
+  }
+
+  async waitForResponse(timeout = 300000) {
+      console.log('Kimi: Waiting for response...');
+      const selectors = this.modelConfig.selectors;
+      
+      // 1. Wait for response container
+      try {
+          await this.page.waitForSelector(selectors.response, { timeout: 30000 });
+      } catch(e) {
+          console.error('Kimi: Response selector not found');
+          return null;
+      }
+
+      // 2. Wait for generation to complete (robust check)
+      await this.waitForGenerationToComplete(selectors.response);
+      
+      // 3. Extract and return
+      return await this.extractResponse();
   }
 
   async extractResponse() {
-    const selectors = this.modelConfig.selectors;
-    
-    // Wait for the response to start generating
-    await this.page.waitForSelector(selectors.response, { timeout: 10000 });
-    
-    // Smart Wait: Wait for generation to complete
-    await this.waitForGenerationToComplete(selectors.response);
+      const selectors = this.modelConfig.selectors;
+      // Just extract, do NOT wait here to avoid double-waiting loops
+      try {
+          const responses = await this.page.$$(selectors.response);
+          if (responses.length > 0) {
+              let lastResponse = responses[responses.length - 1];
+              
+              // Debug info
+              const className = await lastResponse.getAttribute('class');
+              console.log(`Kimi: Selected response element class: ${className}`);
+              
+              // If we selected the inner markdown, try to find the container to include references
+                if (className && className.includes('markdown')) {
+                    try {
+                        const parent = await lastResponse.evaluateHandle(el => el.parentElement);
+                        if (parent) {
+                            const parentText = await parent.innerText();
+                            const markdownText = await lastResponse.innerText();
+                            
+                            console.log(`Debug: Markdown len: ${markdownText.length}, Parent len: ${parentText.length}`);
+                            
+                            // Check if parent has "Reference" related keywords or significantly more content
+                            if (parentText.includes('参考资料') || 
+                                parentText.includes('引用') || 
+                                parentText.length > markdownText.length + 50) {
+                                console.log('Parent has more content (likely references), using parent.');
+                                lastResponse = parent;
+                            } else {
+                                // Global search for references if not found in parent
+                                const hasRefs = await this.page.evaluate(() => {
+                                    // Look for elements containing "参考资料"
+                                    const refs = Array.from(document.querySelectorAll('div, h3, h4, p, span'))
+                                        .filter(el => el.innerText && (el.innerText.includes('参考资料') || el.innerText === '引用'));
+                                    
+                                    if (refs.length > 0) {
+                                        // Return the class of the last found element (likely the one for the latest message)
+                                        const lastRef = refs[refs.length - 1];
+                                        return {
+                                            found: true,
+                                            className: lastRef.className,
+                                            tagName: lastRef.tagName,
+                                            text: lastRef.innerText,
+                                            // Try to find a container for these refs
+                                            containerClass: lastRef.parentElement ? lastRef.parentElement.className : null
+                                        };
+                                    }
+                                    return { found: false };
+                                });
 
-    // Get the last response bubble
-    const responses = await this.page.$$(selectors.response);
-    if (responses.length > 0) {
-        const lastResponse = responses[responses.length - 1];
-        
-        // Extract Text
-        const text = await lastResponse.textContent();
-        
-        return {
-            text: text,
-            rawHtml: await lastResponse.innerHTML()
-        };
-    }
-    return null;
+                                if (hasRefs.found) {
+                                    console.log('Found references globally:', hasRefs);
+                                    // If we found references globally, we might need to select a common ancestor
+                                    // But since we can't easily traverse from here, let's just note it.
+                                    // Ideally, we find the common ancestor of 'lastResponse' and the reference element.
+                                }
+                                
+                                // Try grandparent
+                                const grandparent = await parent.evaluateHandle(el => el.parentElement);
+                                if (grandparent) {
+                                    const gpText = await grandparent.innerText();
+                                    console.log(`Debug: Grandparent len: ${gpText.length}`);
+                                    if (gpText.includes('参考资料') || gpText.length > parentText.length + 50) {
+                                        console.log('Grandparent has references, using grandparent.');
+                                        lastResponse = grandparent;
+                                    }
+                                }
+                            }
+                        }
+                    } catch (err) {
+                        console.warn('Error checking parent element:', err);
+                    }
+                }
+
+              const text = await lastResponse.innerText(); // Use innerText for better formatting
+              return {
+                  text: text,
+                  rawHtml: await lastResponse.innerHTML()
+              };
+          }
+      } catch (e) {
+          console.error('Failed to extract response:', e);
+      }
+      return { text: '', rawHtml: '' };
   }
 
-  async waitForGenerationToComplete(responseSelector) {
-    // Improved implementation:
-    // 1. Wait for "Regenerate" button to appear (strong signal of completion)
-    // 2. Fallback to stability check (content length/height not changing)
-    // 3. Max timeout 120s
-    
-    console.log('Waiting for generation to complete...');
-    const startTime = Date.now();
-    const maxDuration = 120000; // 2 minutes
-    const stabilityThreshold = 5000; // 5 seconds of no change
-    
-    let lastTextLength = 0;
-    let lastChangeTime = Date.now();
-    
-    while (Date.now() - startTime < maxDuration) {
-        // Check 1: Is "Regenerate" button visible?
-        // Note: Selector might need adjustment based on exact UI
-        const regenerateBtn = await this.page.$(this.modelConfig.selectors.regenerate || 'div[class*="regenerate"], div[class*="refresh"], span:has-text("重新生成")');
-        if (regenerateBtn && await regenerateBtn.isVisible()) {
-            console.log('Generation complete (Regenerate button detected).');
-            return;
-        }
-
-        // Check 2: Content stability
-        const responses = await this.page.$$(responseSelector);
-        if (responses.length > 0) {
-            const lastResponse = responses[responses.length - 1];
-            const text = await lastResponse.textContent();
-            const currentLength = text.length;
-            
-            if (currentLength !== lastTextLength) {
-                lastTextLength = currentLength;
-                lastChangeTime = Date.now();
-            } else {
-                // Content hasn't changed
-                if (Date.now() - lastChangeTime > stabilityThreshold) {
-                    console.log('Generation complete (Content stable).');
-                    return;
-                }
-            }
-        }
-        
-        await this.page.waitForTimeout(1000);
-    }
-    
-    console.log('Warning: Timeout waiting for generation to complete.');
+  async waitForGenerationToComplete(selector) {
+      console.log('Waiting for generation to complete...');
+      
+      let lastText = '';
+      let stableCount = 0;
+      const maxRetries = 240; // 2 minutes max (240 * 500ms)
+      const stabilityThreshold = 10; // 5 seconds stability (10 * 500ms)
+      
+      for (let i = 0; i < maxRetries; i++) {
+          const elements = await this.page.$$(selector);
+          if (elements.length === 0) {
+              await this.page.waitForTimeout(500);
+              continue;
+          }
+          
+          const lastElement = elements[elements.length - 1];
+          const currentText = await lastElement.textContent();
+          
+          // Check for "Searching" state (optional, if Kimi puts it in text)
+          // For now, just rely on text stability
+          
+          if (currentText === lastText && currentText.length > 0) {
+              stableCount++;
+          } else {
+              stableCount = 0;
+              lastText = currentText;
+          }
+          
+          if (stableCount >= stabilityThreshold) { 
+              console.log(`Response stable for ${stabilityThreshold * 0.5} seconds. Generation complete.`);
+              return;
+          }
+          
+          await this.page.waitForTimeout(500);
+      }
+      console.log('Timeout waiting for generation to complete (stabilization).');
   }
 }

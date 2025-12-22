@@ -4,6 +4,7 @@ import { geoService } from './api/geoService'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { Login } from './pages/Login'
 import { LandingPage } from './pages/LandingPage'
+import { ReportPage } from './pages/ReportPage'
 
 // Lazy load view components
 const WenquanView = React.lazy(() => import('./components/views/WenquanView').then(module => ({ default: module.WenquanView })));
@@ -65,6 +66,7 @@ function MainApp() {
   const [error, setError] = useState('')
   const [selected, setSelected] = useState(null) // 当前选中的查询词
   const [sort, setSort] = useState({ key: '', dir: 'desc' }) // 排序状态
+  const [selectedQueries, setSelectedQueries] = useState(new Set()) // 手动勾选的查询词
 
   // 评估（天问）相关状态
   const [selectedModelsEval, setSelectedModelsEval] = useState([]) // 选中的评估模型
@@ -175,6 +177,12 @@ function MainApp() {
 
   // 预览评估用的高价值查询词
   const hvPreviewEval = useMemo(() => {
+    // 如果有手动选择的 query，优先使用
+    if (selectedQueries.size > 0) {
+      const manual = mined.filter(m => selectedQueries.has(m.query))
+      if (manual.length > 0) return manual
+    }
+
     const sortedLocal = (() => {
       const arr = [...mined]
       if (!arr.length) return []
@@ -211,7 +219,7 @@ function MainApp() {
       hv = samples.slice(0, Math.max(1, Math.min(100, preselectCountEval || 1))).map(q => ({ query: q }))
     }
     return hv
-  }, [mined, sort.key, sort.dir, preselectCountEval])
+  }, [mined, sort.key, sort.dir, preselectCountEval, selectedQueries])
 
   /**
    * 开始品牌评估任务
@@ -230,8 +238,15 @@ function MainApp() {
     if (!minedList.length) {
       minedList = await mine() || []
     }
-    const sortedLocal = sortQueries(minedList, sort.key, sort.dir)
-    const hv = computeHighValue(sortedLocal, preselectCountEval)
+    
+    let hv
+    if (selectedQueries.size > 0) {
+      hv = minedList.filter(m => selectedQueries.has(m.query))
+    } else {
+      const sortedLocal = sortQueries(minedList, sort.key, sort.dir)
+      hv = computeHighValue(sortedLocal, preselectCountEval)
+    }
+
     setHvQueries(hv)
     setEvalResults([])
     const total = hv.length * selectedModelsEval.length
@@ -240,7 +255,15 @@ function MainApp() {
     setError('')
     try {
       // 创建报告任务
-      const r = await geoService.createReport({ product: form.productBrand, brand: form.productBrand, seedKeyword: form.seedKeyword, sellingPoints: form.sellingPoints, queries: hv, providers: selectedModelsEval })
+      const r = await geoService.createReport({ 
+        product: form.productBrand, 
+        brand: form.productBrand, 
+        seedKeyword: form.seedKeyword, 
+        sellingPoints: form.sellingPoints, 
+        queries: hv, 
+        providers: selectedModelsEval,
+        mode: 'automation' // Enable automation flow
+      })
       const id = String(r.id || '')
       setReportTaskId(id)
       setResultModels(selectedModelsEval)
@@ -377,9 +400,35 @@ function MainApp() {
     setLoading(true)
     setError('')
     try {
+      // 1. 先调用 generateGeoQuestions 生成10个问题
+      let geoQuestions = []
+      try {
+        const geoRes = await geoService.generateGeoQuestions({
+          brand: form.productBrand,
+          keyword: form.seedKeyword
+        })
+        if (geoRes && Array.isArray(geoRes.questions)) {
+          // 取前10个
+          geoQuestions = geoRes.questions.slice(0, 10).map(q => ({
+            query: typeof q === 'string' ? q : (q.question || q.query || JSON.stringify(q)),
+            angle: '高频',
+            dimension: '高频'
+          }))
+        }
+      } catch (e) {
+        console.error('Failed to generate GEO questions', e)
+        // 不阻断后续流程
+      }
+
+      // 2. 继续原有的生成 query 思路
       const r = await geoService.mineQueries({ product: form.productBrand, brand: form.productBrand, seedKeyword: form.seedKeyword, channel: decoded.channel, signals: decoded.signals, category: decoded.category, direct: true })
+      
       // 猜测每个查询词的维度
-      const enriched = r.list.map(x => ({ ...x, dimension: guessDimension(decoded.dimensions, x.angle) }))
+      const originalMined = r.list.map(x => ({ ...x, dimension: guessDimension(decoded.dimensions, x.angle) }))
+      
+      // 合并结果：GEO问题放在前面
+      const enriched = [...geoQuestions, ...originalMined]
+      
       setMined(enriched)
       // 构建图谱
       const g = await geoService.graph({ product: form.productBrand, brand: form.productBrand, seedKeyword: form.seedKeyword, mined: enriched })
@@ -505,6 +554,8 @@ function MainApp() {
               sort={sort}
               toggleSort={toggleSort}
               goTianwen={goTianwen}
+              selectedQueries={selectedQueries}
+              setSelectedQueries={setSelectedQueries}
             />
           )}
           
@@ -533,6 +584,7 @@ function MainApp() {
               goWenquan={goWenquan}
               getDomains={getDomains}
               domainCounts={domainCounts}
+              manualCount={selectedQueries.size}
             />
           )}
           
@@ -601,6 +653,11 @@ export default function App() {
           <Route path="/dashboard/*" element={
             <RequireAuth>
               <MainApp />
+            </RequireAuth>
+          } />
+          <Route path="/report/:id" element={
+            <RequireAuth>
+              <ReportPage />
             </RequireAuth>
           } />
           <Route path="*" element={<Navigate to="/" replace />} />

@@ -26,13 +26,11 @@ export class QueryEngine {
     let context = null;
     try {
       // 1. Load Session (Cookies) if available
-      // const sessionState = await this.sessionManager.loadSession(modelKey);
+      const sessionState = await this.sessionManager.loadSession(modelKey);
       
       // 2. Create Context with Session
-      // context = await browserManager.newContext(sessionState ? { storageState: sessionState } : {});
-      
-      // Disable auto-load session to force env injection every time
-      context = await browserManager.newContext({});
+      // If session exists, use it. Otherwise, create a fresh context.
+      context = await browserManager.newContext(sessionState ? { storageState: sessionState } : {});
       
       const page = await context.newPage();
       
@@ -45,18 +43,16 @@ export class QueryEngine {
 
       // 3. Handle Login (Auto check or Manual fallback)
       if (typeof modelPage.handleLogin === 'function') {
-        const loginNeeded = await modelPage.handleLogin();
+        const isLoggedIn = await modelPage.handleLogin();
         
-        // 4. Save Session if login was required/refreshed
-        // We can also just save periodically or on every successful interaction
-        // checking loginNeeded return value might be useful
-        /* 
-        if (loginNeeded !== false) { // Assuming handleLogin returns true if manual login occurred, or we just save anyway
-            console.log('Updating session storage...');
+        // 4. Save Session if login successful
+        if (isLoggedIn) {
+            console.log(`Login confirmed for ${modelKey}, updating session storage...`);
             await this.sessionManager.saveSession(modelKey, context);
+        } else {
+            console.warn(`Login failed for ${modelKey}. Aborting query to prevent false positives.`);
+            throw new Error(`Login failed for ${modelKey}. Cannot proceed with query.`);
         }
-        */
-       // Disable auto-save session to prevent overwriting env config with potentially invalid state
       }
 
       await modelPage.sendQuery(query);
@@ -98,16 +94,17 @@ export class QueryEngine {
       return {
         model: modelKey,
         query,
+        response: null,
+        status: 'failed',
         error: error.message,
-        status: 'error',
         metrics: {
-          timestamp: new Date().toISOString()
+            duration: 0,
+            timestamp: new Date().toISOString()
         }
       };
     } finally {
-      if (context) {
-        await context.close();
-      }
+        // Optional: Close context if needed, but BrowserManager handles browser lifecycle
+        if (context) await context.close();
     }
   }
 }

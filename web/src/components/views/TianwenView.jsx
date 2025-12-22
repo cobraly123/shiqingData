@@ -59,8 +59,10 @@ export function TianwenView({
   startEvalAnalysis,
   goWenquan,
   getDomains,
-  domainCounts = []
+  domainCounts = [],
+  manualCount = 0
 }) {
+  const isManual = manualCount > 0
   return (
     <div className="container">
       {/* 1. 品牌体检配置卡片 */}
@@ -84,17 +86,18 @@ export function TianwenView({
                 type="number"
                 min={1}
                 max={100}
-                value={preselectCountEval || ''}
+                value={isManual ? manualCount : (preselectCountEval || '')}
                 onChange={onCountChangeEval}
                 onWheel={(e) => { e.preventDefault(); e.stopPropagation(); }}
                 inputMode="numeric"
                 className="input"
-                disabled={evaluating || (evalProgress.percent > 0 && evalProgress.percent < 100)}
-                style={{ width: 100, cursor: (evaluating || (evalProgress.percent > 0 && evalProgress.percent < 100)) ? 'not-allowed' : 'text', opacity: (evaluating || (evalProgress.percent > 0 && evalProgress.percent < 100)) ? 0.6 : 1 }}
+                disabled={evaluating || (evalProgress.percent > 0 && evalProgress.percent < 100) || isManual}
+                style={{ width: 100, cursor: (evaluating || (evalProgress.percent > 0 && evalProgress.percent < 100) || isManual) ? 'not-allowed' : 'text', opacity: (evaluating || (evalProgress.percent > 0 && evalProgress.percent < 100) || isManual) ? 0.6 : 1 }}
                 placeholder="20"
               />
               <span style={{ color: '#6b7280', fontSize: 12 }}>个</span>
-              {countErrorEval && <span style={{ color: 'var(--danger)', fontSize: 12 }}>{countErrorEval}</span>}
+              {countErrorEval && !isManual && <span style={{ color: 'var(--danger)', fontSize: 12 }}>{countErrorEval}</span>}
+              {isManual && <span style={{ color: '#10b981', fontSize: 12 }}>（已使用观心手动选择的Query）</span>}
             </div>
             
             {/* 预选结果预览列表 */}
@@ -117,8 +120,7 @@ export function TianwenView({
                 className="btn btn-secondary"
                 onClick={() => {
                   if (evalProgress.percent === 100 && reportTaskId) {
-                    const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost'
-                    const url = `${window.location.protocol}//${host}:18082/src/Report_index.html`
+                    const url = `/report/${reportTaskId}`
                     window.open(url, '_blank')
                   }
                 }}

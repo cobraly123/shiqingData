@@ -14,6 +14,13 @@ export const InputSchema = z.object({
 });
 
 /**
+ * 竞品分析验证模式
+ */
+export const AnalyzeCompetitorsSchema = z.object({
+  text: z.string().min(1),
+});
+
+/**
  * 评估查询词验证模式
  * 用于评估查询词接口
  */
@@ -70,6 +77,18 @@ export const MineQueriesSchema = z.object({
 }).refine(data => data.brand || data.product, { message: "Either brand or product is required" });
 
 /**
+ * GEO问题生成验证模式
+ * 用于GEO问题生成器接口
+ */
+export const GenerateGeoQuestionsSchema = z.object({
+  brand: z.string().min(1),
+  keyword: z.string().min(1),
+  industry: z.string().optional(),
+  competitor: z.string().optional(),
+  scenario: z.string().optional(),
+});
+
+/**
  * 扩展矩阵验证模式
  * 用于扩展矩阵接口
  */
@@ -97,10 +116,17 @@ export const GraphSchema = z.object({
  * 用于创建报告接口
  */
 export const ReportCreateSchema = z.object({
-  queries: z.array(z.object({ query: z.string().min(1) })).min(1),
+  queries: z.array(z.object({ 
+    query: z.string().min(1),
+    angle: z.string().optional(),
+    dimension: z.string().optional(),
+    type: z.string().optional(),
+    tag: z.string().optional()
+  })).min(1),
   providers: z.array(z.string().min(1)).min(1),
   product: z.string().optional(),
   brand: z.string().optional(),
   seedKeyword: z.string().optional(),
   sellingPoints: z.string().optional(),
+  mode: z.string().optional(),
 });

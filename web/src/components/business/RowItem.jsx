@@ -8,8 +8,10 @@ import React, { useState } from 'react'
  * @param {Object} props.item - 数据项 { query, score, dimension, angle }
  * @param {Object} props.selected - 当前选中的项
  * @param {Function} props.onSelect - 选中回调
+ * @param {boolean} props.checked - 是否被勾选
+ * @param {Function} props.onCheck - 勾选回调
  */
-export function RowItem({ item, selected, onSelect }) {
+export function RowItem({ item, selected, onSelect, checked, onCheck }) {
   const [hover, setHover] = useState(false)
   const active = selected?.query === item.query
   const bg = hover ? '#eff6ff' : active ? 'var(--bg)' : 'transparent'
@@ -20,6 +22,14 @@ export function RowItem({ item, selected, onSelect }) {
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
     >
+      <td style={{ borderRight: '1px solid #d1d5db', textAlign: 'center', verticalAlign: 'middle' }} onClick={(e) => e.stopPropagation()}>
+        <input 
+          type="checkbox" 
+          checked={!!checked} 
+          onChange={(e) => onCheck(e.target.checked)}
+          style={{ cursor: 'pointer' }} 
+        />
+      </td>
       <td style={{ borderRight: '1px solid #d1d5db', verticalAlign: 'top' }}>
         {typeof item.score?.total === 'number' ? (
           <span style={{ display: 'inline-block', minWidth: 36, textAlign: 'center', padding: '4px 8px', borderRadius: 999, background: '#dcfce7', color: '#16a34a', fontWeight: 600 }}>{Math.round(item.score.total)}</span>

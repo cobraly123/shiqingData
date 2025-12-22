@@ -6,13 +6,37 @@ export class WenxinPage extends BasePage {
   }
 
   async navigate() {
-    console.log(`Navigating to ${this.modelConfig.name} at ${this.modelConfig.url}`);
+    await super.navigate();
+  }
+
+  async isLoggedIn() {
+    // Strong check: Look for User Avatar or specific logged-in elements
+    const userAvatar = await this.page.$('div[class*="avatar"], img[alt*="头像"], .user-center');
+    return userAvatar && await userAvatar.isVisible();
+  }
+
+  async handleLogin() {
+    // Setup Network Listener
+    // Wenxin uses /api/user or similar
+    const authCheckPromise = this.checkLoginByNetwork(/api\/(user|chat)/, 10000);
+
+    const result = await super.handleLogin(false);
+
+    // Check Network
     try {
-        await this.page.goto(this.modelConfig.url, { waitUntil: 'domcontentloaded', timeout: 60000 });
-        await this.page.waitForTimeout(2000);
-    } catch (e) {
-        console.log(`Navigation partial timeout or error: ${e.message}. Continuing...`);
-    }
+        const isNetworkAuth = await Promise.race([
+            authCheckPromise,
+            new Promise(r => setTimeout(() => r(false), 1000))
+        ]);
+        if (isNetworkAuth) {
+             console.log('Login confirmed via Network!');
+             return true;
+        }
+    } catch (e) {}
+
+    if (result) return true;
+
+    return await this.waitForManualLogin();
   }
 
   async sendQuery(query) {
@@ -73,90 +97,6 @@ export class WenxinPage extends BasePage {
      // Wait for response generation to start
      console.log('Waiting for response...');
    }
-
-  async handleLogin() {
-    console.log('Checking login status for Wenxin...');
-    
-    // Always inject cookies first if available and we are in a fresh context
-    // But since we can't easily know if it's fresh, let's look for a strong "Logged In" signal first.
-    // The input box is NOT a strong signal for Wenxin.
-    
-    try {
-      // Strong check: Look for User Avatar or specific logged-in elements
-      // Not just input box.
-      const userAvatar = await this.page.$('div[class*="avatar"], img[alt*="头像"], .user-center');
-      if (userAvatar && await userAvatar.isVisible()) {
-          console.log('User avatar found. Already logged in.');
-          return true;
-      } else {
-          console.log('User avatar not found. Proceeding to cookie injection...');
-      }
-    } catch (e) {
-      console.log('Error checking login status:', e);
-    }
-
-    // Auto-login via Cookie Injection
-    if (this.modelConfig.auth && this.modelConfig.auth.cookies) {
-        console.log('Injecting Wenxin cookies...');
-        const rawCookies = this.modelConfig.auth.cookies;
-        const cookieArray = rawCookies.split('; ').map(pair => {
-            const index = pair.indexOf('=');
-            if (index === -1) return null;
-            const name = pair.substring(0, index).trim();
-            const value = pair.substring(index + 1).trim();
-            return {
-                name: name,
-                value: value,
-                domain: '.baidu.com', // Assumption for Baidu/Wenxin
-                path: '/',
-                secure: true
-            };
-        }).filter(c => c !== null);
-
-        // Hack: Ensure BDUSS is present if BDUSS_BFESS is there
-        const bduss = cookieArray.find(c => c.name === 'BDUSS');
-        const bdussBfess = cookieArray.find(c => c.name === 'BDUSS_BFESS');
-        
-        if (!bduss && bdussBfess) {
-            console.log('Adding BDUSS from BDUSS_BFESS...');
-            cookieArray.push({
-                ...bdussBfess,
-                name: 'BDUSS'
-            });
-        }
-
-        await this.page.context().addCookies(cookieArray);
-        
-        console.log('Cookies injected. Reloading page...');
-        await this.page.reload();
-        
-        try {
-            await this.page.waitForSelector(this.modelConfig.selectors.input, { timeout: 15000, state: 'visible' });
-            console.log('Auto-login successful!');
-            return true;
-        } catch (e) {
-            console.error('Auto-login failed after cookie injection.');
-        }
-    }
-
-    const { username, password } = this.modelConfig.auth || {};
-    
-    // Auto-login logic would go here if we had specific selectors for Baidu login
-    // For now, we fall back to manual login
-    
-    console.log('Please login manually to Wenxin (Ernie Bot).');
-    console.log('Waiting for user to complete login...');
-    
-    try {
-        // Wait up to 5 minutes for user to login and the chat input to appear
-        await this.page.waitForSelector(this.modelConfig.selectors.input, { timeout: 300000, state: 'visible' });
-        console.log('Login detected! Chat input is visible.');
-        return true;
-    } catch (e) {
-        console.error('Timeout waiting for login to complete.');
-        throw e;
-    }
-  }
 
   async extractResponse() {
     const selectors = this.modelConfig.selectors;
