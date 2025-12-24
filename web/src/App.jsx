@@ -275,6 +275,12 @@ function MainApp() {
           const s = await geoService.getReportStatus(id)
           const pg = s.progress || { done: total, total, percent: 100 }
           setEvalProgress(pg)
+          
+          // Update real-time results
+          if (Array.isArray(s.results)) {
+            setEvalResults(s.results)
+          }
+
           if ((s.status || '') === 'completed' || pg.percent >= 100) {
             clearInterval(reportTimerRef.current)
             reportTimerRef.current = null
@@ -353,6 +359,23 @@ function MainApp() {
     const it = evalResults.find(r => r.query === qText && r.provider === provider)
     const txt = String(it?.response || '').trim()
     return txt ? txt : '(No response)'
+  }
+
+  // 获取指定查询词和模型的搜索结果
+  const getSearchResults = (qText, provider) => {
+    const it = evalResults.find(r => r.query === qText && r.provider === provider)
+    // Try to get searchResults from response object (if nested) or direct property
+    if (it?.searchResults) return it.searchResults;
+    if (it?.response?.searchResults) return it.response.searchResults;
+    return [];
+  }
+
+  // 获取指定查询词和模型的引用
+  const getReferences = (qText, provider) => {
+    const it = evalResults.find(r => r.query === qText && r.provider === provider)
+    if (it?.references) return it.references;
+    if (it?.response?.references) return it.response.references;
+    return [];
   }
   
   // 获取指定查询词和模型的来源域名
@@ -575,6 +598,8 @@ function MainApp() {
               hvQueries={hvQueries}
               resultModels={resultModels}
               getResponse={getResponse}
+              getSearchResults={getSearchResults}
+              getReferences={getReferences}
               selectedModelsQA={selectedModelsQA}
               toggleModelQA={toggleModelQA}
               preselectCountQA={preselectCountQA}

@@ -51,6 +51,8 @@ export function TianwenView({
   hvQueries = [],
   resultModels = [],
   getResponse,
+  getSearchResults,
+  getReferences,
   selectedModelsQA = [],
   toggleModelQA,
   preselectCountQA = 20,
@@ -154,6 +156,8 @@ export function TianwenView({
                   {resultModels.map(m => (
                     <th key={m} style={{ width: 360, color: '#374151', borderRight: '1px solid #d1d5db' }}>{modelOptions.find(x => x.key === m)?.label || m}</th>
                   ))}
+                  <th style={{ width: 250, color: '#374151', borderRight: '1px solid #d1d5db' }}>搜索结果</th>
+                  <th style={{ width: 250, color: '#374151', borderRight: '1px solid #d1d5db' }}>引用来源</th>
                 </tr>
               </thead>
               <tbody>
@@ -167,6 +171,46 @@ export function TianwenView({
                         <div style={{ color: '#111827', whiteSpace: 'normal', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>{getResponse(q.query, m)}</div>
                       </td>
                     ))}
+                    <td style={{ borderRight: '1px solid #d1d5db', verticalAlign: 'top', fontSize: 12 }}>
+                      {resultModels.map(m => {
+                          const results = getSearchResults ? getSearchResults(q.query, m) : [];
+                          if (!results || !results.length) return null;
+                          const label = modelOptions.find(x => x.key === m)?.label || m;
+                          return (
+                              <div key={m} style={{ marginBottom: 8 }}>
+                                  {resultModels.length > 1 && <div style={{ fontWeight: 'bold', color: '#666' }}>{label}</div>}
+                                  <ol style={{ paddingLeft: 16, margin: '4px 0' }}>
+                                      {results.map((r, idx) => (
+                                          <li key={idx}>
+                                              {r.source && <span style={{color: '#9ca3af', marginRight: 4}}>[{r.source}]</span>}
+                                              <a href={r.url} target="_blank" rel="noreferrer" style={{ color: '#2563eb', textDecoration: 'none' }}>{r.title || r.url}</a>
+                                          </li>
+                                      ))}
+                                  </ol>
+                              </div>
+                          );
+                      })}
+                    </td>
+                    <td style={{ borderRight: '1px solid #d1d5db', verticalAlign: 'top', fontSize: 12 }}>
+                      {resultModels.map(m => {
+                          const refs = getReferences ? getReferences(q.query, m) : [];
+                          if (!refs || !refs.length) return null;
+                          const label = modelOptions.find(x => x.key === m)?.label || m;
+                          return (
+                              <div key={m} style={{ marginBottom: 8 }}>
+                                  {resultModels.length > 1 && <div style={{ fontWeight: 'bold', color: '#666' }}>{label}</div>}
+                                  <ol style={{ paddingLeft: 16, margin: '4px 0' }}>
+                                      {refs.map((r, idx) => (
+                                          <li key={idx}>
+                                              {r.source && <span style={{color: '#9ca3af', marginRight: 4}}>[{r.source}]</span>}
+                                              <a href={r.url} target="_blank" rel="noreferrer" style={{ color: '#2563eb', textDecoration: 'none' }}>{r.title || r.url}</a>
+                                          </li>
+                                      ))}
+                                  </ol>
+                              </div>
+                          );
+                      })}
+                    </td>
                   </tr>
                 ))}
               </tbody>

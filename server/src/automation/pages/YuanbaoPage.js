@@ -140,13 +140,110 @@ export class YuanbaoPage extends BasePage {
         const elements = await this.page.$$(combinedSelector);
         if (elements.length > 0) {
             const lastElement = elements[elements.length - 1];
-            return await lastElement.innerText();
+            const text = await lastElement.innerText();
+            
+            // Extract Search Results and References
+            const searchResults = await this.extractSearchResults(lastElement);
+            const references = await this.extractReferences(lastElement);
+
+            return {
+                text,
+                searchResults,
+                references
+            };
         }
-        return '';
+        return { text: '', searchResults: [], references: [] };
     } catch (e) {
         console.error(`Wait for response failed: ${e.message}`);
         throw e;
     }
+  }
+
+  async extractSearchResults(responseElement) {
+      console.log('Yuanbao: Extracting search results...');
+      try {
+          return await this.page.evaluate((el) => {
+              const results = [];
+              const cleanUrl = (u) => {
+                  if (!u) return '';
+                  if (u.startsWith('//')) return 'https:' + u;
+                  return u;
+              };
+
+              const addSource = (title, url, source) => {
+                  if (url && url.startsWith('http') && !results.find(s => s.url === url)) {
+                      results.push({ 
+                          title: title.trim(), 
+                          url: url,
+                          source: source || 'Yuanbao Search',
+                          position: results.length + 1
+                      });
+                  }
+              };
+
+              // 1. Look for search result cards or links within the response
+              // Yuanbao often puts sources in a specific container or as links
+              const links = el.querySelectorAll('a');
+              links.forEach(link => {
+                  const href = link.getAttribute('href');
+                  const text = link.innerText;
+                  // Filter valid external links
+                  if (href && href.startsWith('http') && text.length > 5) {
+                       // Avoid internal links or simple navigation
+                       if (!href.includes('yuanbao.tencent.com')) {
+                           addSource(text, cleanUrl(href), 'Yuanbao Link');
+                       }
+                  }
+              });
+
+              return results;
+          }, responseElement);
+      } catch (e) {
+          console.error('Error extracting Yuanbao search results:', e);
+          return [];
+      }
+  }
+
+  async extractReferences(responseElement) {
+      console.log('Yuanbao: Extracting references...');
+      try {
+          return await this.page.evaluate((el) => {
+              const refs = [];
+              
+              // Look for reference lists (usually at bottom)
+              const refLists = el.querySelectorAll('div[class*="reference"], div[class*="source"], ul, ol');
+              
+              refLists.forEach(list => {
+                  // Check if it looks like a reference list (contains links and numbers)
+                  if (list.innerText.includes('参考') || list.innerText.includes('Sources') || list.querySelectorAll('li').length > 0) {
+                      const items = list.querySelectorAll('li, div[class*="item"]');
+                      items.forEach((item, index) => {
+                          const link = item.querySelector('a');
+                          if (link) {
+                              const href = link.getAttribute('href');
+                              if (href && href.startsWith('http')) {
+                                  refs.push({
+                                      id: (index + 1).toString(),
+                                      title: item.innerText.replace(/\[\d+\]/g, '').trim(),
+                                      url: href
+                                  });
+                              }
+                          }
+                      });
+                  }
+              });
+
+              return refs;
+          }, responseElement);
+      } catch (e) {
+          console.error('Error extracting Yuanbao references:', e);
+          return [];
+      }
+  }
+
+  // Legacy support
+  async extractSources(responseElement) {
+      return await this.extractSearchResults(responseElement);
   }
 
   async waitForGenerationToComplete(selector) {

@@ -181,7 +181,10 @@ export async function analyzeQueryResponse(responseText, targetBrands = []) {
     }
   });
 
-  // 4. 输出要求 - 构造返回数据
+  // 4. 回复质量评分 (新增)
+  const qualityAnalysis = calculateQualityScore(responseText);
+
+  // 5. 输出要求 - 构造返回数据
   const result = {
     extractedBrands: orderedBrands, // 按出现顺序
     matchResults: matchResults,
@@ -190,9 +193,11 @@ export async function analyzeQueryResponse(responseText, targetBrands = []) {
       textLength: responseText.length,
       density: responseText.length > 0 ? (orderedBrands.length / responseText.length).toFixed(4) : 0
     },
+    qualityAnalysis, // 包含 qualityScore 和 dimensions
     scoring: {
       totalScore,
-      brandSequenceScore: calculateSequenceScore(orderedBrands, targetBrands) // 额外的顺序权重评分
+      brandSequenceScore: calculateSequenceScore(orderedBrands, targetBrands), // 额外的顺序权重评分
+      qualityScore: qualityAnalysis.score // 汇总到 scoring
     },
     distances
   };
@@ -218,5 +223,47 @@ function calculateSequenceScore(orderedBrands, targetBrands) {
     }
   });
   return score;
+}
+
+// 辅助函数：计算回复质量评分
+function calculateQualityScore(text) {
+  if (!text) return { score: 0, dimensions: [] };
+  
+  let score = 0;
+  const dimensions = [];
+  const len = text.length;
+
+  // 1. 长度评分 (满分 40)
+  if (len > 800) { score += 40; dimensions.push('length_excellent'); }
+  else if (len > 500) { score += 30; dimensions.push('length_good'); }
+  else if (len > 200) { score += 20; dimensions.push('length_fair'); }
+  else { score += 10; dimensions.push('length_short'); }
+
+  // 2. 结构评分 (满分 30)
+  let structureScore = 0;
+  if (text.includes('\n') || text.includes('<br>')) structureScore += 10; // 有分段
+  if (/[1-9]\./.test(text) || /[-•]/.test(text)) structureScore += 10; // 有列表
+  if (text.includes('总结') || text.includes('综上') || text.includes('建议')) structureScore += 10; // 有结论
+  score += structureScore;
+  if (structureScore >= 20) dimensions.push('structure_good');
+
+  // 3. 信息丰富度 (满分 30)
+  // 简单启发式：检查是否有具体数据或专业术语
+  // 这里简化为：是否包含数字（可能代表参数或价格）
+  const hasNumbers = /\d+/.test(text);
+  const hasEnglish = /[a-zA-Z]+/.test(text); // 可能包含型号或英文品牌
+  if (hasNumbers) score += 15;
+  if (hasEnglish) score += 15;
+  if (hasNumbers && hasEnglish) dimensions.push('content_rich');
+
+  // 4. 扣分项
+  const errorKeywords = ['无法回答', '不知道', '抱歉', 'sorry', 'I cannot'];
+  const hasError = errorKeywords.some(kw => text.includes(kw));
+  if (hasError) {
+      score = Math.max(0, score - 50);
+      dimensions.push('potential_refusal');
+  }
+
+  return { score: Math.min(100, score), dimensions };
 }
 

@@ -137,22 +137,440 @@ export class DoubaoPage extends BasePage {
     } else {
         await this.page.press(selectors.input, 'Enter');
     }
+
+    // Wait for the response to start generating
+    try {
+        await this.page.waitForSelector(selectors.response, { timeout: 15000 });
+        console.log('Response generation started.');
+    } catch (e) {
+        console.log('Timeout waiting for response to start.');
+    }
+
+  }
+
+  async waitForResponse(timeout = 300000) {
+    console.log(`Doubao: Waiting for response (timeout: ${timeout}ms)...`);
+    const selectors = this.modelConfig.selectors;
+
+    // 1. Wait for "Stop" button to appear (indicating generation started)
+    try {
+        const stopButton = await this.page.waitForSelector('button[data-testid="stop_generating"]', { timeout: 15000 });
+        if (stopButton) {
+            console.log('Generation in progress (Stop button detected)...');
+            // 2. Wait for "Stop" button to disappear (indicating generation finished)
+            await this.page.waitForSelector('button[data-testid="stop_generating"]', { state: 'hidden', timeout: timeout }); 
+            console.log('Generation completed (Stop button disappeared).');
+        }
+    } catch (e) {
+        // Stop button might not have appeared if generation was very fast or selectors changed
+        console.log('Stop button detection skipped or timed out. Checking response selector...');
+        try {
+             await this.page.waitForSelector(selectors.response, { timeout: 30000 });
+        } catch(e2) {
+             console.error('Doubao: Response selector not found');
+             return null;
+        }
+    }
+    
+    // Extra stability wait
+    await this.page.waitForTimeout(2000);
+
+    // Double check with content stability
+    await this.waitForGenerationToComplete(selectors.response);
+    
+    return await this.extractResponse();
+  }
+
+  async waitForGenerationToComplete(selector) {
+      console.log('Doubao: Waiting for content stability...');
+      let lastText = '';
+      let stableCount = 0;
+      const checkInterval = 1000;
+      const stabilityThreshold = 5; // 5 checks * 1s = 5 seconds of stability required
+      const maxChecks = 120; // 2 minutes max wait for stability
+
+      for (let i = 0; i < maxChecks; i++) {
+          try {
+              const responses = await this.page.$$(selector);
+              if (responses.length === 0) {
+                  await this.page.waitForTimeout(checkInterval);
+                  continue;
+              }
+              
+              const lastResponse = responses[responses.length - 1];
+              const text = await lastResponse.innerText();
+              
+              if (text.length > 0 && text === lastText) {
+                  stableCount++;
+                  if (stableCount >= stabilityThreshold) {
+                      console.log(`Doubao: Content stable for ${stabilityThreshold}s. Generation assumed complete.`);
+                      return;
+                  }
+              } else {
+                  stableCount = 0;
+                  lastText = text;
+                  // console.log(`Doubao: Content changing... (${text.length} chars)`);
+              }
+          } catch (e) {
+              console.warn('Error checking content stability:', e.message);
+          }
+          
+          await this.page.waitForTimeout(checkInterval);
+      }
+      console.warn('Doubao: Timeout waiting for content stability.');
   }
 
   async extractResponse() {
     const selectors = this.modelConfig.selectors;
+    
     try {
         // Get all response elements and pick the last one usually
         const responses = await this.page.$$(selectors.response);
         if (responses.length > 0) {
             const lastResponse = responses[responses.length - 1];
             // Use innerText instead of textContent to preserve newlines and formatting
-            return await lastResponse.innerText();
+            const text = await lastResponse.innerText();
+            
+            // Try to expand "Search Sources" if collapsed
+            // Strategy 1: Look for "搜索来源" text (Old UI)
+            try {
+                const sourceToggle = this.page.locator('text="搜索来源"').last();
+                if (await sourceToggle.isVisible()) {
+                    console.log('Found "搜索来源", clicking to expand...');
+                    await sourceToggle.click();
+                    await this.page.waitForTimeout(1000);
+                }
+            } catch (e) {}
+
+            // Strategy 2: Look for "参考X篇文章" (New UI)
+             try {
+                  // Check if side panel is already open
+                  const isSidePanelOpen = await this.page.evaluate(() => {
+                      const panel = document.querySelector('div[data-testid="canvas_panel_container"]');
+                      return panel && panel.getAttribute('data-visible') === 'true';
+                  });
+
+                  if (!isSidePanelOpen) {
+                      // Look for elements containing "参考" and "篇" - Flexible Regex
+                      // Matches "参考5篇", "参考 5 篇文章", "参考10+篇" etc.
+                      const refToggles = await this.page.getByText(/参考\s*\d+.*篇/).all();
+                      console.log(`Found ${refToggles.length} potential reference toggles.`);
+                      
+                      if (refToggles.length > 0) {
+                          const lastRefToggle = refToggles[refToggles.length - 1];
+                          if (await lastRefToggle.isVisible()) {
+                              console.log('Found "参考X篇文章" toggle, clicking...');
+                              await lastRefToggle.click();
+                              // Wait for side panel to open
+                              await this.page.waitForTimeout(2000); 
+                          }
+                      } else {
+                          // Fallback: Check for any button with "参考"
+                          const allRefButtons = await this.page.getByRole('button', { name: /参考/ }).all();
+                          if (allRefButtons.length > 0) {
+                              console.log('Found generic "参考" button, clicking last one...');
+                              await allRefButtons[allRefButtons.length - 1].click();
+                              await this.page.waitForTimeout(2000);
+                          }
+                      }
+                  } else {
+                      // console.log('Side panel is already open, skipping toggle click.');
+                  }
+             } catch (e) {
+                 console.log('Error trying to expand references:', e.message);
+             }
+
+            const searchResults = await this.extractSearchResults(lastResponse);
+            let references = await this.extractReferences(lastResponse);
+            
+            // Strict Mode: Do not fallback to search results. 
+            // User requirement: "Get reference list from side bar".
+            if (searchResults.length > 0 && (!references || references.length === 0)) {
+                 console.log('Doubao: No references found in side panel. (Strict mode: Skipping fallback to search results)');
+            }
+
+            // Format data as requested: 序号、信源域名、信源文章名、信源URL
+            const formatSource = (item) => ({
+                '序号': item.index || item.position,
+                '信源域名': item.source || item.domain || 'N/A',
+                '信源文章名': item.title || 'N/A',
+                '信源URL': item.url || ''
+            });
+
+            const formattedSearchResults = searchResults.map(formatSource);
+            const formattedReferences = references.map(formatSource);
+
+            const rawHtml = await lastResponse.innerHTML();
+            
+            return {
+                text,
+                searchResults,
+                references,
+                formattedSearchResults,
+                formattedReferences,
+                // Legacy support
+                sources: searchResults,
+                rawHtml
+            };
         }
         return null;
     } catch (e) {
         console.error('Failed to extract response:', e);
         return null;
     }
+  }
+
+  async extractSearchResults(responseElement) {
+    console.log('Doubao: Extracting search results...');
+    try {
+        return await this.page.evaluate(async (el) => {
+            const results = [];
+            const cleanUrl = (u) => {
+                if (!u) return '';
+                if (u.startsWith('//')) return 'https:' + u;
+                return u;
+            };
+
+            // Doubao Search Sources Strategy
+            // 1. Look for "搜索来源" or "参考" in parent containers
+            
+            let wrapper = el;
+            let depth = 0;
+            // Traverse up to find the message bubble wrapper
+            while (wrapper && depth < 4) {
+                if (wrapper.parentElement) {
+                     const siblings = Array.from(wrapper.parentElement.children);
+                     for (const sib of siblings) {
+                         if (sib.innerText && (sib.innerText.includes('搜索来源') || sib.innerText.includes('参考'))) {
+                             // This sibling is likely the source container
+                             const links = sib.querySelectorAll('a');
+                             links.forEach((link, i) => {
+                                 const href = link.getAttribute('href');
+                                 if (href && (href.startsWith('http') || href.startsWith('//'))) {
+                                     results.push({
+                                         title: link.innerText || 'No Title',
+                                         url: cleanUrl(href),
+                                         source: 'Doubao Search',
+                                         position: i + 1
+                                     });
+                                 }
+                             });
+                         }
+                     }
+                }
+                wrapper = wrapper.parentElement;
+                depth++;
+            }
+            
+            // 2. Also check if sources are inside the element itself (sometimes embedded)
+            if (results.length === 0) {
+                const embeddedLinks = el.querySelectorAll('a[class*="source"], a[class*="citation"]');
+                embeddedLinks.forEach((link, i) => {
+                    const href = link.getAttribute('href');
+                    if (href && (href.startsWith('http') || href.startsWith('//'))) {
+                        results.push({
+                            title: link.innerText || 'No Title',
+                            url: cleanUrl(href),
+                            source: 'Doubao Embedded',
+                            position: i + 1
+                        });
+                    }
+                });
+            }
+            
+            // Remove duplicates
+            const uniqueResults = [];
+            const seenUrls = new Set();
+            for (const r of results) {
+                if (!seenUrls.has(r.url)) {
+                    seenUrls.add(r.url);
+                    uniqueResults.push(r);
+                }
+            }
+                
+            // Global Fallback
+            if (uniqueResults.length === 0) {
+                 const allDivs = Array.from(document.querySelectorAll('div'));
+                 const refDiv = allDivs.find(d => {
+                    const style = window.getComputedStyle(d);
+                    return style.display !== 'none' && 
+                           d.innerText.includes('搜索来源') && 
+                           d.querySelectorAll('a').length > 0 &&
+                           (d.className.includes('panel') || d.className.includes('side'));
+                 });
+                 if (refDiv) {
+                    const links = refDiv.querySelectorAll('a');
+                    links.forEach((link, i) => {
+                        const href = link.getAttribute('href');
+                        if (href && href.startsWith('http') && !seenUrls.has(cleanUrl(href))) {
+                            seenUrls.add(cleanUrl(href));
+                            uniqueResults.push({
+                                title: link.innerText || 'No Title',
+                                url: cleanUrl(href),
+                                source: 'Doubao Global',
+                                position: uniqueResults.length + 1
+                            });
+                        }
+                    });
+                 }
+            }
+
+            return uniqueResults;
+        }, responseElement);
+    } catch (e) {
+        console.warn('Error extracting Doubao search results:', e);
+        return [];
+    }
+  }
+
+  extractDomain(url) {
+    if (!url) return '';
+    try {
+        const urlObj = new URL(url);
+        return urlObj.hostname.replace(/^www\./, '');
+    } catch (e) {
+        return '';
+    }
+  }
+
+  async extractReferences(responseElement) {
+    console.log('Doubao: Extracting references...');
+    try {
+        const rawRefs = await this.page.evaluate(async (el) => {
+             const refs = [];
+             const cleanUrl = (u) => {
+                if (!u) return '';
+                if (u.startsWith('//')) return 'https:' + u;
+                return u;
+            };
+
+             // Strategy 1: Side Panel (Global search)
+             // Look for the side panel container
+             const sidePanels = Array.from(document.querySelectorAll(
+                 'aside[data-testid="samantha_layout_right_side"], ' + 
+                 'div[data-testid="canvas_panel_container"], ' +
+                 'div[class*="side"], div[class*="panel"], div[class*="drawer"]'
+             ));
+             
+             // Filter for panels that look like reference lists
+             const refPanel = sidePanels.find(p => {
+                 const style = window.getComputedStyle(p);
+                 if (style.display === 'none' || style.visibility === 'hidden') return false;
+
+                 const text = p.innerText || '';
+                 const hasKeywords = text.includes('参考') || text.includes('来源');
+                 const hasLinks = p.querySelectorAll('a').length > 0;
+                 return hasKeywords && hasLinks;
+             });
+
+             const panelRefs = [];
+
+             if (refPanel) {
+                 // Strategy A: Precise extraction using data-testid="search-text-item"
+                 const searchItems = refPanel.querySelectorAll('div[data-testid="search-text-item"]');
+                 
+                 if (searchItems.length > 0) {
+                     searchItems.forEach((item, i) => {
+                         const link = item.querySelector('a');
+                         if (link) {
+                             const href = link.getAttribute('href');
+                             // Try to find title specifically
+                             const titleEl = item.querySelector('div[class*="title"], .search-item-title');
+                             const title = titleEl ? titleEl.innerText : link.innerText;
+                             
+                             // Try to find source name
+                             // Usually in a span or div with class containing 'source' or next to favicon
+                             let sourceName = '';
+                             const sourceEl = item.querySelector('div[class*="source"], span[class*="source"], div[class*="site"], span[class*="site"]');
+                             if (sourceEl) {
+                                 sourceName = sourceEl.innerText.trim();
+                             } else {
+                                 // Fallback: Check for text nodes that are not title
+                                 // This is tricky, maybe better handled in post-processing via domain
+                             }
+
+                             if (href && (href.startsWith('http') || href.startsWith('//'))) {
+                                 panelRefs.push({
+                                     title: title.replace(/\n/g, ' ').trim(),
+                                     url: cleanUrl(href),
+                                     source: sourceName, // Source name if found
+                                     index: panelRefs.length + 1
+                                 });
+                             }
+                         }
+                     });
+                 }
+                 
+                 // Strategy B: Fallback to all links if Strategy A failed
+                 if (panelRefs.length === 0) {
+                     const links = refPanel.querySelectorAll('a');
+                     links.forEach((link, i) => {
+                         const href = link.getAttribute('href');
+                         const title = link.innerText;
+                         // Filter out internal Doubao links or very short titles
+                         if (href && (href.startsWith('http') || href.startsWith('//')) && 
+                             !href.includes('doubao.com') && 
+                             title.length > 5) {
+                             
+                             panelRefs.push({
+                                 title: title.replace(/\n/g, ' ').trim(),
+                                 url: cleanUrl(href),
+                                 source: '', 
+                                 index: panelRefs.length + 1
+                             });
+                         }
+                     });
+                 }
+             }
+
+             // Strategy 3: Global search for search-text-item (if panel detection failed)
+             if (panelRefs.length === 0) {
+                 const globalSearchItems = document.querySelectorAll('div[data-testid="search-text-item"]');
+                 
+                 if (globalSearchItems.length > 0) {
+                      globalSearchItems.forEach((item, i) => {
+                         const link = item.querySelector('a');
+                         if (link) {
+                             const href = link.getAttribute('href');
+                             const titleEl = item.querySelector('div[class*="title"], .search-item-title');
+                             const title = titleEl ? titleEl.innerText : link.innerText;
+                             
+                             let sourceName = '';
+                             const sourceEl = item.querySelector('div[class*="source"], span[class*="source"]');
+                             if (sourceEl) sourceName = sourceEl.innerText.trim();
+
+                             if (href && (href.startsWith('http') || href.startsWith('//'))) {
+                                 panelRefs.push({
+                                     title: title.replace(/\n/g, ' ').trim(),
+                                     url: cleanUrl(href),
+                                     source: sourceName,
+                                     index: panelRefs.length + 1
+                                 });
+                             }
+                         }
+                     });
+                 }
+             }
+             
+             return panelRefs;
+        }, responseElement);
+
+        // Post-processing to standardize format
+        return rawRefs.map(ref => ({
+            index: ref.index,
+            domain: ref.source || this.extractDomain(ref.url), // Use source name if available, else hostname
+            title: ref.title,
+            url: ref.url
+        }));
+
+    } catch (e) {
+        console.error('Error extracting Doubao references:', e);
+        return [];
+    }
+  }
+
+  // Deprecated
+  async extractSources(responseElement) {
+    return this.extractSearchResults(responseElement);
   }
 }

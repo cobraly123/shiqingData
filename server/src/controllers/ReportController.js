@@ -142,6 +142,13 @@ async function performCompetitorAnalysis(state, id) {
     
     console.log(`[Report ${id}] Competitor analysis completed. Found ${summary.length} brands.`);
 
+    // 5. 数据记录阶段：生成结构化Excel表格
+    try {
+        await automationService.exportAnalysisToExcel(state.results, id);
+    } catch (exportErr) {
+        console.error(`[Report ${id}] Failed to export analysis to Excel:`, exportErr);
+    }
+
   } catch (err) {
     console.error(`[Report ${id}] Auto competitor analysis failed:`, err);
   }
@@ -255,7 +262,8 @@ export async function getReportStatus(req, res) {
   const id = String(req.query.id || '');
   const state = getTask(id);
   if (!state) return res.status(404).json({ error: 'not_found' });
-  res.json({ id, progress: state.progress, status: state.status });
+  // Include results to allow frontend to display them in real-time
+  res.json({ id, progress: state.progress, status: state.status, results: state.results });
 }
 
 /**

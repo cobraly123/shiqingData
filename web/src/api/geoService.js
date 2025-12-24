@@ -63,6 +63,13 @@ export const geoService = {
   getReportView: (id) => get(`/api/report/view?id=${id}`),
 
   /**
+   * 获取报告详情 (Alias for getReportView)
+   * @param {string} id 
+   * @returns {Promise<any>}
+   */
+  getReport: (id) => get(`/api/report/view?id=${id}`),
+
+  /**
    * 获取监控日志
    * @param {number} limit - 日志条数限制
    * @returns {Promise<any>}

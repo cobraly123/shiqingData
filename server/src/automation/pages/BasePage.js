@@ -198,16 +198,44 @@ export class BasePage {
       console.log('Checking for popups...');
       for (const selector of popupSelectors) {
           try {
-              const closeBtn = await this.page.$(selector);
-              if (closeBtn && await closeBtn.isVisible()) {
-                  console.log(`Popup detected (${selector}), closing...`);
-                  await closeBtn.click();
-                  await this.page.waitForTimeout(500);
+              // Quick check with short timeout
+              const popup = await this.page.$(selector);
+              if (popup && await popup.isVisible()) {
+                  console.log(`Closing popup: ${selector}`);
+                  await popup.click();
+                  await this.page.waitForTimeout(500); // Wait for animation
               }
           } catch (e) {
-              // Ignore
+              // Ignore errors (popup might not exist)
           }
       }
+  }
+
+  /**
+   * Extract sources/citations from the response element.
+   * Can be overridden by subclasses for specific logic.
+   * @param {ElementHandle} responseElement 
+   * @returns {Promise<Array>} Array of { title, url }
+   */
+  async extractSources(responseElement) {
+    // Default implementation: Look for generic links in the response
+    const sources = [];
+    try {
+        // Try to find links that look like references
+        const links = await responseElement.$$('a');
+        for (const link of links) {
+            const href = await link.getAttribute('href');
+            const text = await link.innerText();
+            
+            // Basic filtering: ignore internal links or empty hrefs
+            if (href && (href.startsWith('http') || href.startsWith('www'))) {
+                sources.push({ title: text || href, url: href });
+            }
+        }
+    } catch (e) {
+        console.warn('Error extracting sources in BasePage:', e);
+    }
+    return sources;
   }
 
   async sendQuery(query) {
@@ -288,7 +316,15 @@ export class BasePage {
         if (responses.length > 0) {
             const lastResponse = responses[responses.length - 1];
             // Use innerText instead of textContent to preserve newlines and formatting
-            return await lastResponse.innerText();
+            const text = await lastResponse.innerText();
+            const sources = await this.extractSources(lastResponse);
+            const rawHtml = await lastResponse.innerHTML();
+            
+            return {
+                text,
+                sources,
+                rawHtml
+            };
         }
         return null;
     } catch (e) {

@@ -9,14 +9,3 @@ dist
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-
-# Generated Reports and Data
-server/reports/
-server/Verification_results/
-server/user_data/
-server/data/sessions/
-*.csv
-*.xlsx
-*.html
-*.png
-server/kimi_credentials*

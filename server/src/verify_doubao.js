@@ -32,6 +32,16 @@ async function verify() {
         console.log('Already logged in!');
     }
 
+    // 5. Test Query
+    console.log('Testing query capability...');
+    const testQuery = "你好，请回复'测试成功'";
+    console.log(`Sending query: "${testQuery}"`);
+    await doubao.sendQuery(testQuery);
+    
+    console.log('Waiting for response...');
+    const response = await doubao.waitForResponse();
+    console.log('Response received:', response);
+
     console.log('Verification complete. Browser will remain open for 60 seconds for observation...');
     await new Promise(r => setTimeout(r, 60000));
 
