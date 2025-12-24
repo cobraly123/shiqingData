@@ -1,4 +1,5 @@
 import { QueryEngine } from '../automation/core/QueryEngine.js';
+import { browserManager } from '../automation/core/BrowserManager.js';
 import { config } from '../automation/config/config.js';
 import fs from 'fs';
 import path from 'path';
@@ -315,6 +316,75 @@ export class AutomationService {
     console.log(`[Automation] Saved Detailed Analysis Report to ${excelPath}`);
     
     return excelPath;
+  }
+
+  /**
+   * Backup the report page as PDF to a local folder
+   * @param {string} reportId 
+   */
+  async backupReportPage(reportId) {
+    console.log(`[Automation] Starting report page backup for ${reportId}...`);
+    let context = null;
+    try {
+        const outputDir = path.resolve(__dirname, '../../report_backups');
+        if (!fs.existsSync(outputDir)) {
+            fs.mkdirSync(outputDir, { recursive: true });
+        }
+
+        // Initialize browser context (will use existing browser or launch new one)
+        // Ensure browser is initialized
+        if (!browserManager.browser) {
+             await browserManager.initialize();
+        }
+
+        context = await browserManager.newContext();
+        const page = await context.newPage();
+        
+        // Construct URL
+        // In dev mode, use Vite port 5173. In prod, might need config.
+        // We use 5173 here to ensure React app is rendered correctly (port 8082 serves raw source in dev).
+        const reportUrl = `http://localhost:5173/report/${reportId}?print=true`;
+        console.log(`[Automation] Navigating to ${reportUrl} for backup...`);
+        
+        // Navigate and wait for network idle (most data loaded)
+        await page.goto(reportUrl, { waitUntil: 'networkidle', timeout: 60000 });
+        
+        // Wait extra time for charts and animations to render
+        await page.waitForTimeout(5000);
+        
+        // Generate filename
+        const timestamp = this.formatDate(new Date());
+        const filename = `Report_Backup_${reportId}_${timestamp}.pdf`;
+        const filePath = path.join(outputDir, filename);
+        
+        // Save as PDF
+        // Note: page.pdf() throws if browser is not headless. 
+        // We assume production/default run is headless.
+        try {
+            await page.pdf({ 
+                path: filePath, 
+                format: 'A4', 
+                printBackground: true,
+                margin: { top: '1cm', right: '1cm', bottom: '1cm', left: '1cm' },
+                displayHeaderFooter: true,
+                footerTemplate: '<div style="font-size: 10px; text-align: center; width: 100%;">Page <span class="pageNumber"></span> of <span class="totalPages"></span></div>'
+            });
+            console.log(`[Automation] Report PDF backup saved to ${filePath}`);
+        } catch (pdfError) {
+            console.warn(`[Automation] PDF generation failed (likely due to headed mode):`, pdfError.message);
+            // Fallback: Save Screenshot
+            const screenshotPath = path.join(outputDir, `Report_Backup_${reportId}_${timestamp}.png`);
+            await page.screenshot({ path: screenshotPath, fullPage: true });
+            console.log(`[Automation] Report Screenshot backup saved to ${screenshotPath}`);
+        }
+        
+        return filePath;
+        
+    } catch (error) {
+        console.error(`[Automation] Failed to backup report page:`, error);
+    } finally {
+        if (context) await context.close();
+    }
   }
 
   formatDate(date) {

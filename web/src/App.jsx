@@ -675,16 +675,15 @@ export default function App() {
               <Login />
             </PublicOnlyRoute>
           } />
+          <Route path="/report/:id" element={
+            <ReportPage />
+          } />
           <Route path="/dashboard/*" element={
             <RequireAuth>
               <MainApp />
             </RequireAuth>
           } />
-          <Route path="/report/:id" element={
-            <RequireAuth>
-              <ReportPage />
-            </RequireAuth>
-          } />
+
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AuthProvider>

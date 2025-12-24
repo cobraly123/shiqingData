@@ -1,7 +1,7 @@
 import { chromium } from 'playwright';
 import { config } from '../config/config.js';
 
-class BrowserManager {
+export class BrowserManager {
   constructor() {
     this.browser = null;
   }

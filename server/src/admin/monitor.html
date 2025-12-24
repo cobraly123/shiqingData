@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>天问 - 自动化监控看板</title>
+    <style>
+        :root {
+            --bg-color: #f3f4f6;
+            --card-bg: #ffffff;
+            --text-primary: #111827;
+            --text-secondary: #6b7280;
+            --border-color: #e5e7eb;
+            --accent-color: #2563eb;
+            --success-color: #10b981;
+            --error-color: #ef4444;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        header {
+            margin-bottom: 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin: 0;
+        }
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 9999px;
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+        .status-running { background-color: #dbeafe; color: #1e40af; }
+        .status-completed { background-color: #d1fae5; color: #065f46; }
+        .status-failed { background-color: #fee2e2; color: #991b1b; }
+        
+        .card {
+            background: var(--card-bg);
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .progress-section {
+            margin-bottom: 20px;
+        }
+        .progress-bar-bg {
+            background-color: #e5e7eb;
+            height: 8px;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .progress-bar-fill {
+            background-color: var(--accent-color);
+            height: 100%;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-top: 16px;
+        }
+        .stat-item {
+            background: #f9fafb;
+            padding: 12px;
+            border-radius: 6px;
+        }
+        .stat-label {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            margin-bottom: 4px;
+        }
+        .stat-value {
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+
+        .log-container {
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        .log-item {
+            border-bottom: 1px solid var(--border-color);
+            padding: 16px 0;
+            display: grid;
+            grid-template-columns: 100px 1fr;
+            gap: 16px;
+        }
+        .log-item:last-child { border-bottom: none; }
+        .log-meta {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+        }
+        .log-content h4 {
+            margin: 0 0 8px 0;
+            font-size: 1rem;
+        }
+        .log-content p {
+            margin: 0;
+            white-space: pre-wrap;
+            font-family: monospace;
+            background: #f8fafc;
+            padding: 12px;
+            border-radius: 4px;
+            font-size: 0.875rem;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .platform-tag {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            background: #e0e7ff;
+            color: #3730a3;
+            font-size: 0.75rem;
+            margin-bottom: 4px;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: var(--text-secondary);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🤖 自动化监控看板</h1>
+            <div id="connection-status" style="color: var(--success-color);">● 已连接</div>
+        </header>
+
+        <div id="active-task-container">
+            <!-- Task info will be injected here -->
+            <div class="empty-state">等待任务启动...</div>
+        </div>
+
+        <div class="card">
+            <h3>最新回复流</h3>
+            <div id="response-stream" class="log-container">
+                <!-- Responses will be injected here -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = '/data';
+        let lastResultCount = 0;
+        let currentTaskId = null;
+
+        async function fetchData() {
+            try {
+                const response = await fetch(API_URL);
+                const data = await response.json();
+                document.getElementById('connection-status').innerHTML = '● 已连接';
+                document.getElementById('connection-status').style.color = '#10b981';
+                
+                if (data && data.task) {
+                    renderTask(data.task);
+                } else {
+                    document.getElementById('active-task-container').innerHTML = '<div class="empty-state">当前无活跃任务</div>';
+                    // Optional: clear stream if no task? Or keep history? Let's keep history for now or clear if ID changes.
+                    if (currentTaskId !== null) {
+                        currentTaskId = null;
+                        lastResultCount = 0;
+                        document.getElementById('response-stream').innerHTML = '';
+                    }
+                }
+            } catch (e) {
+                console.error(e);
+                document.getElementById('connection-status').innerHTML = '● 连接断开';
+                document.getElementById('connection-status').style.color = '#ef4444';
+            }
+        }
+
+        function renderTask(task) {
+            // Check if task changed
+            if (currentTaskId !== task.id) {
+                currentTaskId = task.id;
+                lastResultCount = 0;
+                document.getElementById('response-stream').innerHTML = ''; // Clear old logs
+            }
+
+            const percent = task.progress ? task.progress.percent : 0;
+            const statusClass = `status-${task.status || 'running'}`;
+            const statusText = task.status === 'running' ? '进行中' : (task.status === 'completed' ? '已完成' : '失败');
+
+            const html = `
+                <div class="card">
+                    <div style="display:flex;justify-content:space-between;margin-bottom:16px;">
+                        <div>
+                            <h2 style="margin:0;">任务 ID: ${task.id.substring(0,8)}...</h2>
+                            <div style="font-size:0.875rem;color:#6b7280;margin-top:4px;">开始时间: ${new Date(task.createdAt).toLocaleString()}</div>
+                        </div>
+                        <span class="status-badge ${statusClass}">${statusText}</span>
+                    </div>
+                    
+                    <div class="progress-section">
+                        <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+                            <span>总体进度</span>
+                            <span>${percent}% (${task.progress.done}/${task.progress.total})</span>
+                        </div>
+                        <div class="progress-bar-bg">
+                            <div class="progress-bar-fill" style="width: ${percent}%"></div>
+                        </div>
+                    </div>
+
+                    <div class="stats-grid">
+                        <div class="stat-item">
+                            <div class="stat-label">目标平台</div>
+                            <div class="stat-value">${task.providers.join(', ')}</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-label">预选问题数</div>
+                            <div class="stat-value">${task.queries.length}</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-label">成功采集</div>
+                            <div class="stat-value" style="color:#10b981;">${task.results.filter(r => r.success || r.status === 'success').length}</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.getElementById('active-task-container').innerHTML = html;
+
+            // Render new results
+            const results = task.results || [];
+            if (results.length > lastResultCount) {
+                const newResults = results.slice(lastResultCount);
+                const streamContainer = document.getElementById('response-stream');
+                
+                newResults.forEach(r => {
+                    const div = document.createElement('div');
+                    div.className = 'log-item';
+                    const time = r.timestamp ? new Date(r.timestamp).toLocaleTimeString() : new Date().toLocaleTimeString();
+                    const responseText = r.response ? (typeof r.response === 'string' ? r.response : r.response.text) : '(无回复内容)';
+                    
+                    div.innerHTML = `
+                        <div class="log-meta">
+                            <div>${time}</div>
+                            <div class="platform-tag">${r.platform || r.provider}</div>
+                        </div>
+                        <div class="log-content">
+                            <h4>Q: ${r.originalQuery || r.query}</h4>
+                            <p>${responseText}</p>
+                        </div>
+                    `;
+                    streamContainer.insertBefore(div, streamContainer.firstChild);
+                });
+
+                lastResultCount = results.length;
+            }
+        }
+
+        // Poll every 2 seconds
+        setInterval(fetchData, 2000);
+        fetchData();
+    </script>
+</body>
+</html>

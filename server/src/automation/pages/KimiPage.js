@@ -220,7 +220,15 @@ export class KimiPage extends BasePage {
             let lastResponse = responses[responses.length - 1];
             
             // 1. Extract Text
-            const text = await lastResponse.innerText();
+            // Use evaluate to get innerText, which handles line breaks better than playwright's element.innerText() in some cases
+            // Also try to capture specific markdown content if structure is complex
+            const text = await this.page.evaluate((el) => {
+                // Remove reference superscripts (e.g. [1], [2]) to clean up text, or keep them?
+                // Let's keep them for now as they are part of the content.
+                
+                // Helper to get text from nodes, handling potential shadow roots or weird structures
+                return el.innerText;
+            }, lastResponse);
             
             // 2. Expand References if needed
             await this.ensureReferencesExpanded();

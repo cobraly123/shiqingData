@@ -61,15 +61,15 @@ async function performCompetitorAnalysis(state, id) {
         return r.success && text && text.trim().length > 0 && !hasValidAnalysis;
     });
 
-    console.log(`[Report ${id}] Pending analysis tasks: ${tasks.length}`);
+    console.log(`[Report ${id}] Pending analysis tasks: ${tasks.length} / Total results: ${allResults.length}`);
 
     // 分批处理分析任务
     // 降低并发度以避免 QPS 限制 (Qwen API 限制)
-    const batchSize = 2;
+    const batchSize = 5; // Increased batch size to 5 for testing and efficiency
     
     for (let i = 0; i < tasks.length; i += batchSize) {
         const batch = tasks.slice(i, i + batchSize);
-        console.log(`[Report ${id}] Processing batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(tasks.length/batchSize)}...`);
+        console.log(`[Report ${id}] Processing batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(tasks.length/batchSize)} (Items: ${batch.length})...`);
         
         await Promise.all(batch.map(async (r) => {
             try {
@@ -82,6 +82,7 @@ async function performCompetitorAnalysis(state, id) {
                 // 记录分析结果
                 r.analysis = analysis;
                 r.isAnalyzed = true; // 标记已分析
+                console.log(`[Report ${id}] Analysis success for ${r.provider}. Brands found: ${analysis.extractedBrands.length}`);
                 
             } catch (e) {
                 console.error(`Analysis failed for query: ${r.query} (${r.provider})`, e);
@@ -144,9 +145,14 @@ async function performCompetitorAnalysis(state, id) {
 
     // 5. 数据记录阶段：生成结构化Excel表格
     try {
+        const analyzedCount = state.results.filter(r => r.analysis).length;
+        console.log(`[Report ${id}] Exporting to Excel. Total results: ${state.results.length}, Analyzed: ${analyzedCount}`);
         await automationService.exportAnalysisToExcel(state.results, id);
+        
+        // 6. 自动备份报告页面
+        await automationService.backupReportPage(id);
     } catch (exportErr) {
-        console.error(`[Report ${id}] Failed to export analysis to Excel:`, exportErr);
+        console.error(`[Report ${id}] Failed to export analysis or backup report:`, exportErr);
     }
 
   } catch (err) {

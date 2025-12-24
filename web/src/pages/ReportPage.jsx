@@ -31,6 +31,9 @@ export function ReportPage() {
   const [competitorAnalysis, setCompetitorAnalysis] = useState([]);
   const [brandAnalysis, setBrandAnalysis] = useState(null);
 
+  // Check for Print Mode
+  const isPrintMode = new URLSearchParams(window.location.search).get('print') === 'true';
+
   useEffect(() => {
     const fetchReport = async () => {
       try {
@@ -196,7 +199,7 @@ export function ReportPage() {
   const sortedCompetitors = Array.from(competitorMap.entries()).map(([name, data]) => ({
       name,
       count: data.count,
-      avgRank: data.ranks.length > 0 ? (data.ranks.reduce((a, b) => a + b, 0) / data.ranks.length).toFixed(1) : '-'
+      bestRank: data.ranks.length > 0 ? Math.min(...data.ranks) : '-'
   })).sort((a, b) => b.count - a.count).slice(0, 10); // Top 10
 
   // 3. URL Analysis (Unique list)
@@ -215,21 +218,249 @@ export function ReportPage() {
   
   const allReferences = filteredResults.flatMap(r => {
       const resp = r.response || {};
-      // Prefer 'references' (raw data for Qwen) over 'sources' if available
+      
+      // 1. Prefer formattedReferences (contains explicit '信源域名')
+      if (Array.isArray(resp.formattedReferences) && resp.formattedReferences.length > 0) {
+          return resp.formattedReferences.map(ref => ({
+              ...ref,
+              title: ref['信源文章名'] || ref.title,
+              url: ref['信源URL'] || ref.url,
+              domain: ref['信源域名'] || ref.domain
+          }));
+      }
+
+      // 2. Fallback to raw references
       if (Array.isArray(resp.references) && resp.references.length > 0) {
           return resp.references;
       }
       return Array.isArray(resp.sources) ? resp.sources : [];
   });
   
-  const uniqueSearchResults = processUrlList(allSearchResults);
-  const uniqueReferences = processUrlList(allReferences);
+  // Left: Source Domain Analysis (based on References)
+  const sourceDomainStats = processUrlList(allReferences);
+  
+  // Right: Source Content Analysis (based on References)
+  const sourceContentStats = processContentList(allReferences);
 
+  // Helper for Print Mode: Render Query Analysis
+  const renderQueryAnalysis = (queryObj) => {
+      const qText = queryObj.query;
+      const qResults = allAnalyzedResults.filter(r => r.query === qText);
+      if (qResults.length === 0) return null;
+
+      const qTotalMentions = qResults.reduce((sum, r) => sum + r.mentionCount, 0);
+      const qMentionRate = ((qTotalMentions / qResults.length) * 100).toFixed(1) + '%';
+      
+      const qRankDist = { '1': 0, '2': 0, '3': 0, '4+': 0, 'unranked': 0 };
+      qResults.forEach(r => {
+          if (r.brandRank) {
+             if (r.brandRank === 1) qRankDist['1']++;
+             else if (r.brandRank === 2) qRankDist['2']++;
+             else if (r.brandRank === 3) qRankDist['3']++;
+             else qRankDist['4+']++;
+          } else if (r.mentionCount > 0) {
+             qRankDist['unranked']++;
+          }
+      });
+
+      const qCompetitorMap = new Map();
+      qResults.forEach(r => {
+          r.detectedCompetitors.forEach(c => {
+              if (c.name.toLowerCase().includes(brandName.toLowerCase())) return;
+              if (!qCompetitorMap.has(c.name)) {
+                  qCompetitorMap.set(c.name, { count: 0, ranks: [] });
+              }
+              const entry = qCompetitorMap.get(c.name);
+              entry.count++;
+              if (c.ranking && c.ranking.bestRank) entry.ranks.push(c.ranking.bestRank);
+          });
+      });
+      const qSortedCompetitors = Array.from(qCompetitorMap.entries()).map(([name, data]) => ({
+          name,
+          count: data.count,
+          bestRank: data.ranks.length > 0 ? Math.min(...data.ranks) : '-'
+      })).sort((a, b) => b.count - a.count).slice(0, 10);
+
+      return (
+          <div key={qText} style={{ marginTop: '40px', pageBreakBefore: 'always' }}>
+              <div style={{ padding: '16px', background: '#ecfdf5', borderRadius: '8px', marginBottom: '24px', borderLeft: '4px solid #10b981' }}>
+                  <h2 style={{ margin: 0, color: '#064e3b', fontSize: '24px' }}>Query: {qText}</h2>
+                  <p style={{ margin: '4px 0 0 0', color: '#059669' }}>基于 {qResults.length} 条回复</p>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '24px' }}>
+                 <div style={{ background: 'white', padding: '16px', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
+                    <div style={{ color: '#6b7280', fontSize: '13px' }}>品牌提及率</div>
+                    <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#111827' }}>{qMentionRate}</div>
+                 </div>
+                 <div style={{ background: 'white', padding: '16px', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
+                    <div style={{ color: '#6b7280', fontSize: '13px' }}>首位推荐率</div>
+                    <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#059669' }}>
+                        {qResults.length > 0 ? ((qRankDist['1'] / qResults.length) * 100).toFixed(1) + '%' : '0%'}
+                    </div>
+                 </div>
+                 <div style={{ background: 'white', padding: '16px', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
+                    <div style={{ color: '#6b7280', fontSize: '13px' }}>主要竞品</div>
+                    <div style={{ fontSize: '14px', fontWeight: '500', color: '#111827', marginTop: '4px' }}>
+                        {qSortedCompetitors.slice(0, 3).map(c => c.name).join(', ') || '无'}
+                    </div>
+                 </div>
+              </div>
+
+              <div style={{ background: 'white', borderRadius: '12px', padding: '24px', border: '1px solid #e5e7eb' }}>
+                   <h3 style={{ fontSize: '16px', fontWeight: 'bold', marginBottom: '16px' }}>该 Query 下的竞品表现</h3>
+                   <table style={{ width: '100%', fontSize: '13px', borderCollapse: 'collapse' }}>
+                       <thead>
+                           <tr style={{ borderBottom: '1px solid #e5e7eb', textAlign: 'left' }}>
+                               <th style={{ padding: '8px' }}>竞品</th>
+                               <th style={{ padding: '8px' }}>频次</th>
+                               <th style={{ padding: '8px' }}>最佳排名</th>
+                           </tr>
+                       </thead>
+                       <tbody>
+                           {qSortedCompetitors.map((c, i) => (
+                               <tr key={i} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                                   <td style={{ padding: '8px' }}>{c.name}</td>
+                                   <td style={{ padding: '8px' }}>{c.count}</td>
+                                   <td style={{ padding: '8px' }}>#{c.bestRank}</td>
+                               </tr>
+                           ))}
+                           {qSortedCompetitors.length === 0 && (
+                               <tr><td colSpan="3" style={{ padding: '12px', textAlign: 'center', color: '#9ca3af' }}>无竞品数据</td></tr>
+                           )}
+                       </tbody>
+                   </table>
+              </div>
+          </div>
+      );
+  };
+
+  // Helper for Print Mode: Render Provider Analysis
+  const renderProviderAnalysis = (provider) => {
+      const pResults = allAnalyzedResults.filter(r => r.provider === provider);
+      if (pResults.length === 0) return null;
+
+      // 1. Stats
+      const pTotalMentions = pResults.reduce((sum, r) => sum + r.mentionCount, 0);
+      const pMentionRate = ((pTotalMentions / pResults.length) * 100).toFixed(1) + '%';
+      
+      const pRankDist = { '1': 0, '2': 0, '3': 0, '4+': 0, 'unranked': 0 };
+      pResults.forEach(r => {
+          if (r.brandRank) {
+             if (r.brandRank === 1) pRankDist['1']++;
+             else if (r.brandRank === 2) pRankDist['2']++;
+             else if (r.brandRank === 3) pRankDist['3']++;
+             else pRankDist['4+']++;
+          } else if (r.mentionCount > 0) {
+             pRankDist['unranked']++;
+          }
+      });
+
+      // 2. Competitors
+      const pCompetitorMap = new Map();
+      pResults.forEach(r => {
+          r.detectedCompetitors.forEach(c => {
+              if (c.name.toLowerCase().includes(brandName.toLowerCase())) return;
+              if (!pCompetitorMap.has(c.name)) {
+                  pCompetitorMap.set(c.name, { count: 0, ranks: [] });
+              }
+              const entry = pCompetitorMap.get(c.name);
+              entry.count++;
+              if (c.ranking && c.ranking.bestRank) entry.ranks.push(c.ranking.bestRank);
+          });
+      });
+      const pSortedCompetitors = Array.from(pCompetitorMap.entries()).map(([name, data]) => ({
+          name,
+          count: data.count,
+          bestRank: data.ranks.length > 0 ? Math.min(...data.ranks) : '-'
+      })).sort((a, b) => b.count - a.count).slice(0, 10);
+
+      // 3. Sources
+      const pAllReferences = pResults.flatMap(r => {
+          const resp = r.response || {};
+          if (Array.isArray(resp.formattedReferences) && resp.formattedReferences.length > 0) {
+              return resp.formattedReferences.map(ref => ({
+                  ...ref,
+                  title: ref['信源文章名'] || ref.title,
+                  url: ref['信源URL'] || ref.url,
+                  domain: ref['信源域名'] || ref.domain
+              }));
+          }
+          if (Array.isArray(resp.references) && resp.references.length > 0) return resp.references;
+          return Array.isArray(resp.sources) ? resp.sources : [];
+      });
+      
+      const pSourceDomainStats = processUrlList(pAllReferences);
+
+      return (
+          <div key={provider} style={{ marginTop: '40px', pageBreakBefore: 'always' }}>
+              <div style={{ padding: '16px', background: '#e0e7ff', borderRadius: '8px', marginBottom: '24px', borderLeft: '4px solid #4f46e5' }}>
+                  <h2 style={{ margin: 0, color: '#312e81', fontSize: '24px' }}>{provider} 平台详细分析</h2>
+                  <p style={{ margin: '4px 0 0 0', color: '#4338ca' }}>基于 {pResults.length} 条回复</p>
+              </div>
+
+              {/* Stats Row */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '24px' }}>
+                 <div style={{ background: 'white', padding: '16px', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
+                    <div style={{ color: '#6b7280', fontSize: '13px' }}>品牌提及率</div>
+                    <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#111827' }}>{pMentionRate}</div>
+                 </div>
+                 <div style={{ background: 'white', padding: '16px', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
+                    <div style={{ color: '#6b7280', fontSize: '13px' }}>首位推荐率</div>
+                    <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#059669' }}>
+                        {pResults.length > 0 ? ((pRankDist['1'] / pResults.length) * 100).toFixed(1) + '%' : '0%'}
+                    </div>
+                 </div>
+                 <div style={{ background: 'white', padding: '16px', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
+                    <div style={{ color: '#6b7280', fontSize: '13px' }}>主要竞品</div>
+                    <div style={{ fontSize: '14px', fontWeight: '500', color: '#111827', marginTop: '4px' }}>
+                        {pSortedCompetitors.slice(0, 3).map(c => c.name).join(', ') || '无'}
+                    </div>
+                 </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+                  {/* Competitor Table */}
+                  <div style={{ background: 'white', borderRadius: '12px', padding: '24px', border: '1px solid #e5e7eb' }}>
+                       <h3 style={{ fontSize: '16px', fontWeight: 'bold', marginBottom: '16px' }}>竞品排名分布</h3>
+                       <table style={{ width: '100%', fontSize: '13px', borderCollapse: 'collapse' }}>
+                           <thead>
+                               <tr style={{ borderBottom: '1px solid #e5e7eb', textAlign: 'left' }}>
+                                   <th style={{ padding: '8px' }}>竞品</th>
+                                   <th style={{ padding: '8px' }}>频次</th>
+                                   <th style={{ padding: '8px' }}>最佳排名</th>
+                               </tr>
+                           </thead>
+                           <tbody>
+                               {pSortedCompetitors.map((c, i) => (
+                                   <tr key={i} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                                       <td style={{ padding: '8px' }}>{c.name}</td>
+                                       <td style={{ padding: '8px' }}>{c.count}</td>
+                                       <td style={{ padding: '8px' }}>#{c.bestRank}</td>
+                                   </tr>
+                               ))}
+                               {pSortedCompetitors.length === 0 && (
+                                   <tr><td colSpan="3" style={{ padding: '12px', textAlign: 'center', color: '#9ca3af' }}>无竞品数据</td></tr>
+                               )}
+                           </tbody>
+                       </table>
+                  </div>
+
+                  {/* Source Stats */}
+                  <div style={{ background: 'white', borderRadius: '12px', padding: '24px', border: '1px solid #e5e7eb' }}>
+                       <h3 style={{ fontSize: '16px', fontWeight: 'bold', marginBottom: '16px' }}>核心信源域名</h3>
+                       <DomainAnalysisTable items={pSourceDomainStats.slice(0, 10)} emptyText="无数据" />
+                  </div>
+              </div>
+          </div>
+      );
+  };
 
   return (
     <div style={{ minHeight: '100vh', background: '#f3f4f6', paddingBottom: '40px' }}>
       
-      {/* Header */}
+      {/* Header - Hide in Print Mode */}
+      {!isPrintMode && (
       <div style={{ background: 'white', borderBottom: '1px solid #e5e7eb', padding: '16px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 50 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
             <button onClick={() => navigate('/')} style={{ padding: '8px', borderRadius: '8px', border: '1px solid #e5e7eb', background: 'white', cursor: 'pointer' }}>
@@ -256,11 +487,13 @@ export function ReportPage() {
              </button>
         </div>
       </div>
+      )}
 
       {/* Main Content */}
       <div style={{ maxWidth: '1200px', margin: '24px auto', padding: '0 24px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
         
-        {/* Filters */}
+        {/* Filters - Hide in Print Mode */}
+        {!isPrintMode && (
         <div style={{ background: 'white', borderRadius: '12px', padding: '20px', border: '1px solid #e5e7eb' }}>
              <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
                  <div style={{ flex: 1, minWidth: '200px' }}>
@@ -291,6 +524,7 @@ export function ReportPage() {
                  </div>
              </div>
         </div>
+        )}
 
         {/* 1. Score Cards */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '24px' }}>
@@ -392,7 +626,7 @@ export function ReportPage() {
                           <tr style={{ borderBottom: '1px solid #e5e7eb' }}>
                              <th style={{ padding: '8px', textAlign: 'left' }}>竞品/实体名称</th>
                              <th style={{ padding: '8px', textAlign: 'center' }}>出现频次</th>
-                             <th style={{ padding: '8px', textAlign: 'center' }}>平均排名</th>
+                             <th style={{ padding: '8px', textAlign: 'center' }}>最佳排名</th>
                           </tr>
                        </thead>
                        <tbody>
@@ -400,7 +634,7 @@ export function ReportPage() {
                              <tr key={i} style={{ borderBottom: '1px solid #f3f4f6' }}>
                                 <td style={{ padding: '8px', fontWeight: '500' }}>{c.name}</td>
                                 <td style={{ padding: '8px', textAlign: 'center' }}>{c.count}</td>
-                                <td style={{ padding: '8px', textAlign: 'center', color: c.avgRank <= 3 ? '#10b981' : '#6b7280' }}>#{c.avgRank}</td>
+                                <td style={{ padding: '8px', textAlign: 'center', color: c.bestRank <= 3 ? '#10b981' : '#6b7280' }}>#{c.bestRank}</td>
                              </tr>
                           ))}
                        </tbody>
@@ -453,28 +687,42 @@ export function ReportPage() {
                                 {r.responseText || <span style={{ color: '#9ca3af' }}>(无回复)</span>}
                                 {r.sources && r.sources.length > 0 && (
                                     <div style={{ marginTop: '12px', display: 'flex' }}>
-                                        <button
-                                            onClick={() => handleShowSources(r.sources)}
-                                            style={{
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                gap: '6px',
-                                                padding: '6px 12px',
-                                                background: '#eff6ff',
-                                                border: '1px solid #bfdbfe',
-                                                borderRadius: '6px',
-                                                color: '#2563eb',
-                                                fontSize: '12px',
-                                                fontWeight: '500',
-                                                cursor: 'pointer',
-                                                transition: 'all 0.2s'
-                                            }}
-                                            onMouseOver={(e) => e.currentTarget.style.background = '#dbeafe'}
-                                            onMouseOut={(e) => e.currentTarget.style.background = '#eff6ff'}
-                                        >
-                                            <BookOpen size={14} />
-                                            {r.sources.length} 篇内容
-                                        </button>
+                                        {isPrintMode ? (
+                                            <div style={{ width: '100%', background: '#eff6ff', padding: '12px', borderRadius: '8px', border: '1px solid #bfdbfe' }}>
+                                                <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#1e40af', marginBottom: '8px' }}>引用来源 ({r.sources.length}):</div>
+                                                {r.sources.map((s, idx) => (
+                                                    <div key={idx} style={{ fontSize: '11px', color: '#1e3a8a', marginBottom: '4px', display: 'flex', gap: '4px' }}>
+                                                        <span style={{ minWidth: '20px' }}>[{idx + 1}]</span>
+                                                        <a href={s.url} target="_blank" style={{ color: '#2563eb', textDecoration: 'none', wordBreak: 'break-all' }}>
+                                                            {s.title || s.url || '未知链接'}
+                                                        </a>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <button
+                                                onClick={() => handleShowSources(r.sources)}
+                                                style={{
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '6px',
+                                                    padding: '6px 12px',
+                                                    background: '#eff6ff',
+                                                    border: '1px solid #bfdbfe',
+                                                    borderRadius: '6px',
+                                                    color: '#2563eb',
+                                                    fontSize: '12px',
+                                                    fontWeight: '500',
+                                                    cursor: 'pointer',
+                                                    transition: 'all 0.2s'
+                                                }}
+                                                onMouseOver={(e) => e.currentTarget.style.background = '#dbeafe'}
+                                                onMouseOut={(e) => e.currentTarget.style.background = '#eff6ff'}
+                                            >
+                                                <BookOpen size={14} />
+                                                {r.sources.length} 篇内容
+                                            </button>
+                                        )}
                                     </div>
                                 )}
                              </div>
@@ -490,16 +738,16 @@ export function ReportPage() {
         <div style={{ background: 'white', borderRadius: '12px', padding: '24px', border: '1px solid #e5e7eb', marginTop: '24px' }}>
            <SectionHeader title="4. 引用与搜索来源统计" subtitle="整合展示所有回复中涉及的搜索结果与引用来源" />
            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
-              {/* Left Module: Search Results */}
+              {/* Left Module: Source Domain Analysis */}
               <div style={{ minWidth: 0 }}>
-                  <h4 style={{ fontSize: '16px', fontWeight: '600', color: '#111827', marginBottom: '12px' }}>回复搜索的网址列表</h4>
-                  <UrlList items={uniqueSearchResults} emptyText="无搜索结果" />
+                  <h4 style={{ fontSize: '16px', fontWeight: '600', color: '#111827', marginBottom: '12px' }}>信源域名分析</h4>
+                  <DomainAnalysisTable items={sourceDomainStats} emptyText="无域名数据" />
               </div>
               
-              {/* Right Module: References */}
+              {/* Right Module: Source Content Analysis */}
               <div style={{ minWidth: 0 }}>
-                  <h4 style={{ fontSize: '16px', fontWeight: '600', color: '#111827', marginBottom: '12px' }}>回复引用的网址列表</h4>
-                  <UrlList items={uniqueReferences} emptyText="无引用来源" />
+                  <h4 style={{ fontSize: '16px', fontWeight: '600', color: '#111827', marginBottom: '12px' }}>信源内容分析</h4>
+                  <ContentAnalysisTable items={sourceContentStats} emptyText="无内容数据" />
               </div>
            </div>
         </div>
@@ -509,6 +757,21 @@ export function ReportPage() {
             onClose={() => setShowSourcePanel(false)} 
             sources={currentSources} 
         />
+
+        {/* Print Mode: Detailed Provider Analysis */}
+        {isPrintMode && (
+            <div style={{ marginTop: '40px' }}>
+                <div style={{ textAlign: 'center', marginBottom: '20px', color: '#6b7280', fontSize: '14px' }}>
+                    --- 以下为各维度详细分析报告 ---
+                </div>
+                
+                {/* 1. Query Analysis */}
+                {queries.map((q, i) => renderQueryAnalysis(q))}
+
+                {/* 2. Provider Analysis */}
+                {providers.map(p => renderProviderAnalysis(p))}
+            </div>
+        )}
       </div>
     </div>
   );
@@ -634,6 +897,133 @@ function UrlList({ items, emptyText }) {
     );
 }
 
+function processContentList(items) {
+    if (!items || !Array.isArray(items)) return [];
+    const total = items.length;
+    if (total === 0) return [];
+
+    const contentMap = new Map();
+
+    items.forEach(item => {
+        const url = item.url;
+        const title = item.title || '无标题';
+        
+        // Key by URL if available, otherwise title
+        // Fix: If URL is a generic placeholder (e.g. Wenxin), rely on title for uniqueness to avoid merging different articles
+        const isPlaceholderUrl = !url || url === 'URL Hidden (Click to Open)' || url === 'N/A';
+        const key = isPlaceholderUrl ? (title + (item.domain ? `_${item.domain}` : '')) : url;
+        
+        if (!contentMap.has(key)) {
+            // Extract domain: Prefer explicit domain/source field, then URL parsing
+            let domain = item.domain || item['信源域名'] || item.source;
+            
+            if (!domain && url) {
+                try {
+                    const u = new URL(url.startsWith('http') ? url : `https://${url}`);
+                    domain = u.hostname.replace(/^www\./, '');
+                } catch (e) {}
+            }
+            
+            if (!domain) domain = '未知域名';
+            
+            contentMap.set(key, {
+                title,
+                url,
+                domain,
+                count: 0
+            });
+        }
+        contentMap.get(key).count++;
+    });
+
+    return Array.from(contentMap.values())
+        .map(item => ({
+            ...item,
+            percentage: ((item.count / total) * 100).toFixed(2) + '%'
+        }))
+        .sort((a, b) => b.count - a.count);
+}
+
+function DomainAnalysisTable({ items, emptyText }) {
+    if (!items || items.length === 0) {
+        return <div style={{ color: '#9ca3af', fontSize: '14px' }}>{emptyText}</div>;
+    }
+
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0', border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '3fr 1fr', padding: '12px', background: '#f9fafb', borderBottom: '1px solid #e5e7eb', fontSize: '12px', fontWeight: '600', color: '#6b7280' }}>
+                <div>域名</div>
+                <div style={{ textAlign: 'right' }}>引用占比</div>
+            </div>
+            
+            <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
+                {items.map((item, idx) => (
+                    <div key={idx} style={{ 
+                        display: 'grid', 
+                        gridTemplateColumns: '3fr 1fr', 
+                        padding: '12px', 
+                        fontSize: '14px', 
+                        alignItems: 'center',
+                        borderBottom: idx < items.length - 1 ? '1px solid #f3f4f6' : 'none',
+                        background: 'white'
+                    }}>
+                        <div style={{ color: '#111827', fontWeight: '500', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item.domain}>
+                            {item.domain}
+                        </div>
+                        <div style={{ textAlign: 'right', color: '#6b7280' }}>
+                            {item.percentage}
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+}
+
+function ContentAnalysisTable({ items, emptyText }) {
+    if (!items || items.length === 0) {
+        return <div style={{ color: '#9ca3af', fontSize: '14px' }}>{emptyText}</div>;
+    }
+
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0', border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '3fr 1.5fr 1fr', padding: '12px', background: '#f9fafb', borderBottom: '1px solid #e5e7eb', fontSize: '12px', fontWeight: '600', color: '#6b7280' }}>
+                <div>文章标题</div>
+                <div>域名</div>
+                <div style={{ textAlign: 'right' }}>引用占比</div>
+            </div>
+            
+            <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
+                {items.map((item, idx) => (
+                    <div key={idx} style={{ 
+                        display: 'grid', 
+                        gridTemplateColumns: '3fr 1.5fr 1fr', 
+                        padding: '12px', 
+                        fontSize: '14px', 
+                        alignItems: 'center',
+                        borderBottom: idx < items.length - 1 ? '1px solid #f3f4f6' : 'none',
+                        background: 'white'
+                    }}>
+                        <div style={{ overflow: 'hidden' }}>
+                            <div 
+                               style={{ color: '#111827', fontWeight: '500', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                               title={item.title}>
+                                {item.title}
+                            </div>
+                        </div>
+                        <div style={{ color: '#6b7280', fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingRight: '8px' }} title={item.domain}>
+                            {item.domain}
+                        </div>
+                        <div style={{ textAlign: 'right', color: '#6b7280' }}>
+                            {item.percentage}
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+}
+
 function processUrlList(items) {
     if (!items || !Array.isArray(items)) return [];
     
@@ -644,23 +1034,32 @@ function processUrlList(items) {
 
     items.forEach(item => {
         let url = item.url;
-        let domain = '';
+        let domain = item.domain || item['信源域名']; // Priority 1: Explicit domain
         
         let mediaNameCandidate = item.source || item.title || '';
 
-        try {
-            if (url && typeof url === 'string' && !url.includes('Qwen Reference')) {
-                const urlToParse = url.startsWith('http') ? url : `https://${url}`;
-                const urlObj = new URL(urlToParse);
-                domain = urlObj.hostname;
-            }
-        } catch (e) {}
+        // Priority 2: URL parsing if domain not yet found
+        if (!domain) {
+            try {
+                if (url && typeof url === 'string' && !url.includes('Qwen Reference')) {
+                    const urlToParse = url.startsWith('http') ? url : `https://${url}`;
+                    const urlObj = new URL(urlToParse);
+                    domain = urlObj.hostname;
+                }
+            } catch (e) {}
+        }
 
-        // If no domain found from URL, try to use source if it looks like a domain
+        // Priority 3: Source name if it looks like a domain or if no domain found yet
         if (!domain && mediaNameCandidate && mediaNameCandidate !== 'Qwen Reference') {
             if (mediaNameCandidate.includes('.') && !mediaNameCandidate.includes(' ')) {
                 domain = mediaNameCandidate;
             }
+        }
+        
+        // Priority 4: Source/Media Name as Domain (User Request: "second item of formatted result")
+        // If we still don't have a domain, use the source name itself as the domain grouping key
+        if (!domain && item.source) {
+             domain = item.source;
         }
 
         if (!domain) domain = (url && typeof url === 'string' && url !== 'Qwen Reference') ? url : '未知域名';
